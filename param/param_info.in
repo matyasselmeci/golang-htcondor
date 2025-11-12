@@ -12,7 +12,7 @@
 ##                          const - should never be changed, e.g. HOUR
 ##                          common or normal - customization is likely.  code does not distinguish these two, e.g. DAEMON_LIST
 ##                          seldom - param exists to customize HTCondor, but most pools will not (this is the majority of params)
-##                          expert - the default value will be likely to work for nearly all pools. e.g DC_DAEMON_LIST 
+##                          expert - the default value will be likely to work for nearly all pools. e.g DC_DAEMON_LIST
 ##                          devel - only developers are expected to customize this one, e.g. SYSTEM_STARTD_ATTRS
 ##                          never - proper operation depends on this, but it is not a constant
 ## restart=true             value must one of [true, false, never]. default is false
@@ -20,7 +20,7 @@
 ##                          never - the param is loaded at (job) start and never reloaded (i.e DAG, Shadow & Starter knobs)
 ##
 ## the default keyword is required, all others are optional.
-## 
+##
 ## Multiline values may be declared by using : @tag instead of = like this
 ## [PARAM_NAME]
 ## default: @end
@@ -424,7 +424,7 @@ type=path
 tags=starter
 
 [STARTER_DEBUG]
-default=D_PID 
+default=D_PID
 type=string
 tags=starter
 description=Debug logging options for the starter
@@ -7308,4 +7308,3 @@ default : @fin
 @fin
 
 # ^^^^ TJ SEZ: do NOT insert new param knobs here. insert meta knobs just above this banner, and regular knobs near to related knobs way up there ^^^^
-

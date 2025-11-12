@@ -28,7 +28,7 @@ func NewCollector(address string, port int) *Collector {
 
 // QueryAds queries the collector for daemon advertisements
 // adType specifies the type of ads to query (e.g., "StartdAd", "ScheddAd")
-// constraint is a ClassAd constraint expression
+// constraint is a ClassAd constraint expression string (pass empty string for no constraint)
 func (c *Collector) QueryAds(ctx context.Context, adType string, constraint string) ([]*classad.ClassAd, error) {
 	// Establish TCP connection
 	addr := net.JoinHostPort(c.address, fmt.Sprintf("%d", c.port))
@@ -47,7 +47,10 @@ func (c *Collector) QueryAds(ctx context.Context, adType string, constraint stri
 	cedarStream := stream.NewStream(conn)
 
 	// Determine the command based on ad type
-	cmd := getCommandForAdType(adType)
+	cmd, err := getCommandForAdType(adType)
+	if err != nil {
+		return nil, err
+	}
 
 	// Perform security handshake
 	secConfig := &security.SecurityConfig{
@@ -60,22 +63,30 @@ func (c *Collector) QueryAds(ctx context.Context, adType string, constraint stri
 	}
 
 	auth := security.NewAuthenticator(secConfig, cedarStream)
-	_, err = auth.ClientHandshake()
+	_, err = auth.ClientHandshake(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("security handshake failed: %w", err)
 	}
 
 	// Create query ClassAd
-	queryAd := createQueryAd(adType, constraint)
+	var constraintExpr *classad.Expr
+	if constraint != "" {
+		var err error
+		constraintExpr, err = classad.ParseExpr(constraint)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse constraint expression: %w", err)
+		}
+	}
+	queryAd := createQueryAd(adType, constraintExpr)
 
 	// Create message and send query
 	queryMsg := message.NewMessageForStream(cedarStream)
-	err = queryMsg.PutClassAd(queryAd)
+	err = queryMsg.PutClassAd(ctx, queryAd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add query ClassAd to message: %w", err)
 	}
 
-	err = queryMsg.FlushFrame(true)
+	err = queryMsg.FlushFrame(ctx, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send query message: %w", err)
 	}
@@ -93,7 +104,7 @@ func (c *Collector) QueryAds(ctx context.Context, adType string, constraint stri
 		}
 
 		// Read "more" flag
-		more, err := responseMsg.GetInt32()
+		more, err := responseMsg.GetInt32(ctx)
 		if err != nil {
 			return ads, fmt.Errorf("failed to read 'more' flag: %w", err)
 		}
@@ -103,7 +114,7 @@ func (c *Collector) QueryAds(ctx context.Context, adType string, constraint stri
 		}
 
 		// Read ClassAd
-		ad, err := responseMsg.GetClassAd()
+		ad, err := responseMsg.GetClassAd(ctx)
 		if err != nil {
 			return ads, fmt.Errorf("failed to read ClassAd: %w", err)
 		}
@@ -115,30 +126,29 @@ func (c *Collector) QueryAds(ctx context.Context, adType string, constraint stri
 }
 
 // getCommandForAdType maps ad type to HTCondor command
-func getCommandForAdType(adType string) commands.CommandType {
+func getCommandForAdType(adType string) (commands.CommandType, error) {
 	switch adType {
-	case "StartdAd", "Machine":
-		return commands.QUERY_STARTD_ADS
+	case "StartdAd", "Machine", "Startd":
+		return commands.QUERY_STARTD_ADS, nil
 	case "ScheddAd", "Schedd":
-		return commands.QUERY_SCHEDD_ADS
+		return commands.QUERY_SCHEDD_ADS, nil
 	case "MasterAd", "Master":
-		return commands.QUERY_MASTER_ADS
+		return commands.QUERY_MASTER_ADS, nil
 	case "SubmitterAd", "Submitter":
-		return commands.QUERY_SUBMITTOR_ADS
+		return commands.QUERY_SUBMITTOR_ADS, nil
 	case "LicenseAd", "License":
-		return commands.QUERY_LICENSE_ADS
+		return commands.QUERY_LICENSE_ADS, nil
 	case "CollectorAd", "Collector":
-		return commands.QUERY_COLLECTOR_ADS
+		return commands.QUERY_COLLECTOR_ADS, nil
 	case "NegotiatorAd", "Negotiator":
-		return commands.QUERY_NEGOTIATOR_ADS
+		return commands.QUERY_NEGOTIATOR_ADS, nil
 	default:
-		// Default to generic query
-		return commands.QUERY_STARTD_ADS
+		return 0, fmt.Errorf("unknown ad type: %s", adType)
 	}
 }
 
 // createQueryAd creates a ClassAd for querying ads
-func createQueryAd(adType string, constraint string) *classad.ClassAd {
+func createQueryAd(adType string, constraint *classad.Expr) *classad.ClassAd {
 	ad := classad.New()
 
 	// Set MyType and TargetType as required by HTCondor query protocol
@@ -149,7 +159,7 @@ func createQueryAd(adType string, constraint string) *classad.ClassAd {
 	_ = ad.Set("TargetType", targetType)
 
 	// Set Requirements
-	if constraint == "" {
+	if constraint == nil {
 		_ = ad.Set("Requirements", true)
 	} else {
 		_ = ad.Set("Requirements", constraint)

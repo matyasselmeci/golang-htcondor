@@ -3,8 +3,6 @@ package htcondor
 import (
 	"context"
 	"testing"
-
-	"github.com/PelicanPlatform/classad/classad"
 )
 
 func TestNewSchedd(t *testing.T) {
@@ -28,8 +26,9 @@ func TestScheddQuery(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := schedd.Query(ctx, "Owner == \"user\"", []string{"ClusterId", "ProcId"})
+	// Expect error because we're not connected to a real schedd
 	if err == nil {
-		t.Error("Expected error for unimplemented method")
+		t.Error("Expected error when not connected to schedd")
 	}
 }
 
@@ -37,12 +36,16 @@ func TestScheddSubmit(t *testing.T) {
 	schedd := NewSchedd("test_schedd", "schedd.example.com", 9618)
 	ctx := context.Background()
 
-	ad := classad.New()
-	_ = ad.Set("Cmd", "/bin/echo")
-	_ = ad.Set("Args", "hello")
-	_, err := schedd.Submit(ctx, ad)
+	submitFile := `
+universe = vanilla
+executable = /bin/echo
+arguments = hello
+queue
+`
+	_, err := schedd.Submit(ctx, submitFile)
+	// Expect error because we're not connected to a real schedd
 	if err == nil {
-		t.Error("Expected error for unimplemented method")
+		t.Error("Expected error when not connected to schedd")
 	}
 }
 

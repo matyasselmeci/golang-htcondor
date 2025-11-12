@@ -3,14 +3,13 @@
 //line parser.y:2
 package config
 
-import __yyfmt__ "fmt"
-
-//line parser.y:2
-
 import (
 	"fmt"
+	__yyfmt__ "fmt"
 	"strings"
 )
+
+//line parser.y:2
 
 // Statement represents a parsed configuration statement
 type Statement interface {

@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/PelicanPlatform/classad v0.0.4
-	github.com/bbockelm/cedar v0.0.2
+	github.com/bbockelm/cedar v0.0.4
 	golang.org/x/sys v0.37.0
 )
 

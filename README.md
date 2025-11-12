@@ -55,12 +55,35 @@ if err != nil {
 // Create a schedd instance
 schedd := htcondor.NewSchedd("schedd_name", "schedd.example.com", 9618)
 
+// Submit a job using submit file content
+submitFile := `
+universe = vanilla
+executable = /bin/sleep
+arguments = 10
+output = test.out
+error = test.err
+log = test.log
+queue
+`
+
+clusterID, err := schedd.Submit(ctx, submitFile)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("Submitted job cluster %s\n", clusterID)
+
 // Query jobs
 jobs, err := schedd.Query(ctx, "Owner == \"user\"", []string{"ClusterId", "ProcId", "JobStatus"})
 if err != nil {
     log.Fatal(err)
 }
 ```
+
+The `Submit` method supports all HTCondor submit file features:
+- Simple `queue` statements
+- Multiple procs: `queue 5`
+- Queue with variables: `queue name from (Alice Bob Charlie)`
+- Full submit file syntax with macros and expressions
 
 ## Development
 
@@ -96,10 +119,12 @@ This project is under active development.
 - ✅ HTCondor configuration file parser
 - ✅ Submit file parser with full queue statement support
 - ✅ Job ad generation from submit files
+- ✅ QMGMT (Queue Management) protocol implementation
+- ✅ Job submission via Schedd.Submit() with submit file strings
 - ⏳ Collector Advertise method (pending)
 - ⏳ Collector LocateDaemon method (pending)
 - ⏳ Schedd Query implementation (pending)
-- ⏳ Schedd Submit/Act/Edit methods (pending)
+- ⏳ Schedd Act/Edit methods (pending)
 - 🚧 File transfer protocol (proof-of-concept complete, see below)
 
 ### File Transfer Protocol
@@ -119,10 +144,16 @@ See the [file transfer demo](examples/file_transfer_demo/) for a working example
 
 ### Working Examples
 
-The `QueryAds` method is fully implemented and can query HTCondor collectors. See:
+The library includes several fully working examples:
+- `QueryAds` - Query HTCondor collectors for daemon advertisements
+- `Submit` - Submit jobs to HTCondor using submit file syntax
+- File transfer protocol demonstration
+
+See:
 - `query_demo.go` - Original low-level example using cedar directly
 - `query_demo_lib.go` - Example using the golang-htcondor library
 - `examples/basic/main.go` - Simple example with real queries
+- `examples/submit_demo/` - Job submission demonstration
 - `examples/file_transfer_demo/` - File transfer protocol demonstration
 
 Try it:
@@ -135,6 +166,9 @@ go run query_demo_lib.go cm-1.ospool.osg-htc.org 9618
 
 # Or run the basic example
 cd examples/basic && go run main.go
+
+# Try the submit demo (requires HTCondor schedd)
+cd examples/submit_demo && go run main.go
 
 # Try the file transfer demo (requires HTCondor schedd)
 cd examples/file_transfer_demo && go build

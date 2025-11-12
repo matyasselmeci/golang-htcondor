@@ -169,7 +169,7 @@ func (ftc *FileTransferClient) UploadFile(ctx context.Context, item FileTransfer
 		Encryption:     security.SecurityOptional,
 	}
 	auth := security.NewAuthenticator(secConfig, cedarStream)
-	_, err = auth.ClientHandshake()
+	_, err = auth.ClientHandshake(ctx)
 	if err != nil {
 		return fmt.Errorf("security handshake failed: %w", err)
 	}
@@ -177,34 +177,34 @@ func (ftc *FileTransferClient) UploadFile(ctx context.Context, item FileTransfer
 	// 5. Send FILETRANS_UPLOAD command
 	// TODO: Need StartCommand API - for now, manually send command code
 	msg := message.NewMessageForStream(cedarStream)
-	if err := msg.PutInt32(int32(commands.FILETRANS_UPLOAD)); err != nil {
+	if err := msg.PutInt32(ctx, int32(commands.FILETRANS_UPLOAD)); err != nil {
 		return fmt.Errorf("failed to send FILETRANS_UPLOAD command: %w", err)
 	}
-	if err := msg.FinishMessage(); err != nil {
+	if err := msg.FinishMessage(ctx); err != nil {
 		return fmt.Errorf("failed to finish command message: %w", err)
 	}
 
 	// 6. Send transfer key using Stream.PutSecret() (handles encryption automatically)
-	if err := cedarStream.PutSecret(ftc.transKey); err != nil {
+	if err := cedarStream.PutSecret(ctx, ftc.transKey); err != nil {
 		return fmt.Errorf("failed to send transfer key: %w", err)
 	}
 
 	// 7. Send file metadata
-	if err := ftc.sendFileMetadata(cedarStream, item); err != nil {
+	if err := ftc.sendFileMetadata(ctx, cedarStream, item); err != nil {
 		return fmt.Errorf("failed to send file metadata: %w", err)
 	}
 
 	// 8. Send CommandXferFile
 	msg = message.NewMessageForStream(cedarStream)
-	if err := msg.PutInt32(int32(CommandXferFile)); err != nil {
+	if err := msg.PutInt32(ctx, int32(CommandXferFile)); err != nil {
 		return fmt.Errorf("failed to send XferFile command: %w", err)
 	}
-	if err := msg.FinishMessage(); err != nil {
+	if err := msg.FinishMessage(ctx); err != nil {
 		return fmt.Errorf("failed to finish XferFile command message: %w", err)
 	}
 
 	// 9. Send file data using Stream.PutFile() (efficient streaming)
-	bytesSent, err := cedarStream.PutFile(item.SrcPath)
+	bytesSent, err := cedarStream.PutFile(ctx, item.SrcPath)
 	if err != nil {
 		return fmt.Errorf("failed to send file data: %w", err)
 	}
@@ -214,10 +214,10 @@ func (ftc *FileTransferClient) UploadFile(ctx context.Context, item FileTransfer
 
 	// 10. Send CommandFinished
 	msg = message.NewMessageForStream(cedarStream)
-	if err := msg.PutInt32(int32(CommandFinished)); err != nil {
+	if err := msg.PutInt32(ctx, int32(CommandFinished)); err != nil {
 		return fmt.Errorf("failed to send Finished command: %w", err)
 	}
-	if err := msg.FinishMessage(); err != nil {
+	if err := msg.FinishMessage(ctx); err != nil {
 		return fmt.Errorf("failed to finish command message: %w", err)
 	}
 
@@ -273,7 +273,7 @@ func (ftc *FileTransferClient) DownloadFile(ctx context.Context, remotePath stri
 		Encryption:     security.SecurityOptional,
 	}
 	auth := security.NewAuthenticator(secConfig, cedarStream)
-	_, err = auth.ClientHandshake()
+	_, err = auth.ClientHandshake(ctx)
 	if err != nil {
 		return fmt.Errorf("security handshake failed: %w", err)
 	}
@@ -281,24 +281,24 @@ func (ftc *FileTransferClient) DownloadFile(ctx context.Context, remotePath stri
 	// 4. Send FILETRANS_DOWNLOAD command
 	// TODO: Need StartCommand API - for now, manually send command code
 	msg := message.NewMessageForStream(cedarStream)
-	if err := msg.PutInt32(int32(commands.FILETRANS_DOWNLOAD)); err != nil {
+	if err := msg.PutInt32(ctx, int32(commands.FILETRANS_DOWNLOAD)); err != nil {
 		return fmt.Errorf("failed to send FILETRANS_DOWNLOAD command: %w", err)
 	}
-	if err := msg.FinishMessage(); err != nil {
+	if err := msg.FinishMessage(ctx); err != nil {
 		return fmt.Errorf("failed to finish command message: %w", err)
 	}
 
 	// 5. Send transfer key using Stream.PutSecret() (handles encryption automatically)
-	if err := cedarStream.PutSecret(ftc.transKey); err != nil {
+	if err := cedarStream.PutSecret(ctx, ftc.transKey); err != nil {
 		return fmt.Errorf("failed to send transfer key: %w", err)
 	}
 
 	// 6. Send file path request
 	msg = message.NewMessageForStream(cedarStream)
-	if err := msg.PutString(remotePath); err != nil {
+	if err := msg.PutString(ctx, remotePath); err != nil {
 		return fmt.Errorf("failed to send remote path: %w", err)
 	}
-	if err := msg.FinishMessage(); err != nil {
+	if err := msg.FinishMessage(ctx); err != nil {
 		return fmt.Errorf("failed to finish path message: %w", err)
 	}
 
@@ -307,7 +307,7 @@ func (ftc *FileTransferClient) DownloadFile(ctx context.Context, remotePath stri
 	// In full implementation, we'd receive a ClassAd with file info here
 
 	// 8. Receive file data using Stream.GetFile() (efficient streaming)
-	bytesReceived, err := cedarStream.GetFile(localPath)
+	bytesReceived, err := cedarStream.GetFile(ctx, localPath)
 	if err != nil {
 		return fmt.Errorf("failed to receive file data: %w", err)
 	}
@@ -326,7 +326,7 @@ func (ftc *FileTransferClient) DownloadFile(ctx context.Context, remotePath stri
 // sendFileMetadata sends file metadata over the stream.
 // In the C++ implementation, this can be done via ClassAd or raw protocol.
 // For now, we use ClassAd format for flexibility.
-func (ftc *FileTransferClient) sendFileMetadata(s *stream.Stream, item FileTransferItem) error {
+func (ftc *FileTransferClient) sendFileMetadata(ctx context.Context, s *stream.Stream, item FileTransferItem) error {
 	// Create metadata ClassAd
 	metadataAd := classad.New()
 	_ = metadataAd.Set("FileName", item.DestPath)
@@ -340,11 +340,11 @@ func (ftc *FileTransferClient) sendFileMetadata(s *stream.Stream, item FileTrans
 
 	// Send ClassAd
 	msg := message.NewMessageForStream(s)
-	if err := msg.PutClassAd(metadataAd); err != nil {
+	if err := msg.PutClassAd(ctx, metadataAd); err != nil {
 		return fmt.Errorf("failed to send metadata ClassAd: %w", err)
 	}
 
-	if err := msg.FinishMessage(); err != nil {
+	if err := msg.FinishMessage(ctx); err != nil {
 		return fmt.Errorf("failed to finish metadata message: %w", err)
 	}
 
@@ -352,10 +352,12 @@ func (ftc *FileTransferClient) sendFileMetadata(s *stream.Stream, item FileTrans
 }
 
 // receiveFileMetadata receives file metadata from the stream.
-func (ftc *FileTransferClient) receiveFileMetadata(s *stream.Stream) (*FileTransferItem, error) {
+//
+//nolint:unused // Will be used when implementing file transfer receive operations
+func (ftc *FileTransferClient) receiveFileMetadata(ctx context.Context, s *stream.Stream) (*FileTransferItem, error) {
 	msg := message.NewMessageFromStream(s)
 
-	ad, err := msg.GetClassAd()
+	ad, err := msg.GetClassAd(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to receive metadata ClassAd: %w", err)
 	}
@@ -501,10 +503,12 @@ func (fts *FileTransferServer) HandleDownload(_ context.Context, _ *stream.Strea
 }
 
 // Helper function to receive file metadata (server-side version)
-func (fts *FileTransferServer) receiveFileMetadata(s *stream.Stream) (*FileTransferItem, error) {
+//
+//nolint:unused // Will be used when implementing server-side file transfer
+func (fts *FileTransferServer) receiveFileMetadata(ctx context.Context, s *stream.Stream) (*FileTransferItem, error) {
 	msg := message.NewMessageFromStream(s)
 
-	ad, err := msg.GetClassAd()
+	ad, err := msg.GetClassAd(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to receive metadata ClassAd: %w", err)
 	}
@@ -535,7 +539,9 @@ func (fts *FileTransferServer) receiveFileMetadata(s *stream.Stream) (*FileTrans
 }
 
 // Helper function to send file (server-side)
-func (fts *FileTransferServer) sendFile(s *stream.Stream, filePath string) error {
+//
+//nolint:unused // Will be used when implementing server-side file transfer
+func (fts *FileTransferServer) sendFile(ctx context.Context, s *stream.Stream, filePath string) error {
 	// Open file
 	//nolint:gosec // G304: File path comes from validated transfer request
 	file, err := os.Open(filePath)
@@ -568,19 +574,19 @@ func (fts *FileTransferServer) sendFile(s *stream.Stream, filePath string) error
 	_ = metadataAd.Set("FileMode", int64(item.FileMode))
 
 	msg := message.NewMessageForStream(s)
-	if err := msg.PutClassAd(metadataAd); err != nil {
+	if err := msg.PutClassAd(ctx, metadataAd); err != nil {
 		return fmt.Errorf("failed to send metadata: %w", err)
 	}
-	if err := msg.FinishMessage(); err != nil {
+	if err := msg.FinishMessage(ctx); err != nil {
 		return fmt.Errorf("failed to finish metadata message: %w", err)
 	}
 
 	// Send CommandXferFile
 	msg = message.NewMessageForStream(s)
-	if err := msg.PutInt32(int32(CommandXferFile)); err != nil {
+	if err := msg.PutInt32(ctx, int32(CommandXferFile)); err != nil {
 		return fmt.Errorf("failed to send XferFile command: %w", err)
 	}
-	if err := msg.FinishMessage(); err != nil {
+	if err := msg.FinishMessage(ctx); err != nil {
 		return fmt.Errorf("failed to finish command message: %w", err)
 	}
 
@@ -592,19 +598,19 @@ func (fts *FileTransferServer) sendFile(s *stream.Stream, filePath string) error
 	}
 
 	msg = message.NewMessageForStream(s)
-	if err := msg.PutBytes(data); err != nil {
+	if err := msg.PutBytes(ctx, data); err != nil {
 		return fmt.Errorf("failed to send file data: %w", err)
 	}
-	if err := msg.FinishMessage(); err != nil {
+	if err := msg.FinishMessage(ctx); err != nil {
 		return fmt.Errorf("failed to finish file data message: %w", err)
 	}
 
 	// Send CommandFinished
 	msg = message.NewMessageForStream(s)
-	if err := msg.PutInt32(int32(CommandFinished)); err != nil {
+	if err := msg.PutInt32(ctx, int32(CommandFinished)); err != nil {
 		return fmt.Errorf("failed to send Finished command: %w", err)
 	}
-	if err := msg.FinishMessage(); err != nil {
+	if err := msg.FinishMessage(ctx); err != nil {
 		return fmt.Errorf("failed to finish command message: %w", err)
 	}
 

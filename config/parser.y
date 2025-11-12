@@ -499,13 +499,13 @@ type parser struct {
 // Lex is required by the goyacc-generated parser
 func (p *parser) Lex(lval *yySymType) int {
 	tok := p.lexer.NextToken()
-	
+
 	// Set the string value for tokens that have literal values
 	switch tok.Token {
 	case IDENT, STRING, NUMBER, ASSIGN:
 		lval.str = tok.Lit
 	}
-	
+
 	return int(tok.Token)
 }
 
@@ -521,20 +521,20 @@ func Parse(lexer *Lexer) ([]Statement, error) {
 		result: nil,
 		errors: nil,
 	}
-	
+
 	yyParse(p)
-	
+
 	// If we got results (even empty), return them if there were no critical errors
 	// This allows graceful handling of minor syntax issues and empty input
 	if p.result != nil {
 		return p.result, nil
 	}
-	
+
 	// If we have explicit errors, return the first one
 	if len(p.errors) > 0 {
 		return nil, p.errors[0]
 	}
-	
+
 	// No result and no errors - return empty list for empty input
 	return []Statement{}, nil
 }
