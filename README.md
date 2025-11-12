@@ -1,0 +1,152 @@
+# golang-htcondor
+
+A Go client library for HTCondor that provides functionality similar to the HTCondor Python bindings.
+
+## Overview
+
+This library provides a Go interface to HTCondor services, allowing you to:
+- Query the collector for daemon advertisements
+- Advertise to the collector
+- Locate HTCondor daemons
+- Query the schedd for job information
+- Submit and manage jobs
+- Transfer files using HTCondor's file transfer protocol
+
+## Dependencies
+
+This project uses:
+- [github.com/bbockelm/cedar](https://github.com/bbockelm/cedar) - Cedar protocol bindings
+- [github.com/PelicanPlatform/classad](https://github.com/PelicanPlatform/classad) - ClassAd language implementation
+
+**Note:** Dependencies are currently under development. See [DEPENDENCIES.md](DEPENDENCIES.md) for setup instructions.
+
+## Installation
+
+```bash
+go get github.com/bbockelm/golang-htcondor
+```
+
+## Usage
+
+### Collector
+
+```go
+import "github.com/bbockelm/golang-htcondor"
+
+// Create a collector instance
+collector := htcondor.NewCollector("collector.example.com", 9618)
+
+// Query for schedd ads
+ads, err := collector.QueryAds(ctx, "ScheddAd", "")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Locate a daemon
+location, err := collector.LocateDaemon(ctx, "Schedd", "schedd_name")
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Schedd
+
+```go
+// Create a schedd instance
+schedd := htcondor.NewSchedd("schedd_name", "schedd.example.com", 9618)
+
+// Query jobs
+jobs, err := schedd.Query(ctx, "Owner == \"user\"", []string{"ClusterId", "ProcId", "JobStatus"})
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+## Development
+
+### Building
+
+```bash
+go build ./...
+```
+
+### Testing
+
+```bash
+go test ./...
+```
+
+## API Reference
+
+This library aims to provide an API similar to the [HTCondor Python bindings](https://htcondor.readthedocs.io/en/latest/apis/python-bindings/):
+- [Collector API](https://htcondor.readthedocs.io/en/latest/apis/python-bindings/api/version2/htcondor2/collector.html)
+- [Schedd API](https://htcondor.readthedocs.io/en/latest/apis/python-bindings/api/version2/htcondor2/schedd.html)
+
+## Status
+
+This project is under active development.
+
+### Current Status
+- ✅ Project structure and API design complete
+- ✅ Collector interface defined
+- ✅ Schedd interface defined
+- ✅ Collector QueryAds implementation complete
+- ✅ Cedar protocol integration for queries
+- ✅ ClassAd integration
+- ✅ HTCondor configuration file parser
+- ✅ Submit file parser with full queue statement support
+- ✅ Job ad generation from submit files
+- ⏳ Collector Advertise method (pending)
+- ⏳ Collector LocateDaemon method (pending)
+- ⏳ Schedd Query implementation (pending)
+- ⏳ Schedd Submit/Act/Edit methods (pending)
+- 🚧 File transfer protocol (proof-of-concept complete, see below)
+
+### File Transfer Protocol
+
+The library includes support for HTCondor's file transfer protocol (requires cedar v0.0.2+):
+
+- ✅ Protocol design and documentation ([FILE_TRANSFER_DESIGN.md](FILE_TRANSFER_DESIGN.md))
+- ✅ Core types and interfaces ([file_transfer.go](file_transfer.go))
+- ✅ Client upload/download implementation with streaming file I/O
+- ✅ Efficient file streaming (Stream.PutFile/GetFile)
+- ✅ Secure transfer key handling (Stream.PutSecret/GetSecret)
+- ✅ Unit tests for metadata serialization
+- ⏳ Higher-level command API (manually sends command codes as workaround)
+- ⏳ Server-side handlers (awaiting command registration API)
+
+See the [file transfer demo](examples/file_transfer_demo/) for a working example that demonstrates the complete protocol flow.
+
+### Working Examples
+
+The `QueryAds` method is fully implemented and can query HTCondor collectors. See:
+- `query_demo.go` - Original low-level example using cedar directly
+- `query_demo_lib.go` - Example using the golang-htcondor library
+- `examples/basic/main.go` - Simple example with real queries
+- `examples/file_transfer_demo/` - File transfer protocol demonstration
+
+Try it:
+```bash
+# Query the OSG collector for machine ads
+go run query_demo.go cm-1.ospool.osg-htc.org 9618
+
+# Or use the library-based demo
+go run query_demo_lib.go cm-1.ospool.osg-htc.org 9618
+
+# Or run the basic example
+cd examples/basic && go run main.go
+
+# Try the file transfer demo (requires HTCondor schedd)
+cd examples/file_transfer_demo && go build
+./file_transfer_demo localhost 9618 /tmp/testfile.txt
+```
+
+See [DEPENDENCIES.md](DEPENDENCIES.md) for information about required dependencies.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on contributing to this project.
+
+## License
+
+TBD
