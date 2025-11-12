@@ -237,6 +237,131 @@ func (s *Schedd) Submit(ctx context.Context, submitFileContent string) (string, 
 	return fmt.Sprintf("%d", clusterID), nil
 }
 
+// SubmitRemote submits jobs to the schedd with remote submission semantics.
+// This method is designed for remote job submission with file spooling support.
+//
+// Remote submission behavior:
+// 1. Parses the submit file
+// 2. Ensures ShouldTransferFiles is set to YES
+// 3. Jobs start in HELD status with SpoolingInput hold reason (code 16)
+// 4. Sets LeaveJobInQueue to keep completed jobs for 10 days for output retrieval
+// 5. Submits the job to the schedd
+// 6. Returns the cluster ID and proc ads for subsequent file spooling
+//
+// The caller should then use SpoolJobFilesFromFS or SpoolJobFilesFromTar to upload input files.
+func (s *Schedd) SubmitRemote(ctx context.Context, submitFileContent string) (clusterID int, procAds []*classad.ClassAd, err error) {
+	// Parse the submit file
+	submitFile, err := ParseSubmitFile(strings.NewReader(submitFileContent))
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to parse submit file: %w", err)
+	}
+
+	// Connect to schedd's queue management interface
+	qmgmt, err := NewQmgmtConnection(ctx, s.address, s.port)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to connect to schedd: %w", err)
+	}
+	defer func() {
+		if cerr := qmgmt.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close qmgmt connection: %w", cerr)
+		}
+	}()
+
+	// Set up error handling to abort transaction on failure
+	var submissionErr error
+	defer func() {
+		if submissionErr != nil {
+			_ = qmgmt.AbortTransaction(ctx)
+		}
+	}()
+
+	// Get authenticated user from the QMGMT connection
+	owner := qmgmt.authenticatedUser
+	if owner == "" {
+		submissionErr = fmt.Errorf("no authenticated user")
+		return 0, nil, submissionErr
+	}
+
+	// Set effective owner
+	if err := qmgmt.SetEffectiveOwner(ctx, owner); err != nil {
+		submissionErr = fmt.Errorf("failed to set effective owner: %w", err)
+		return 0, nil, submissionErr
+	}
+
+	// Create new cluster
+	clusterIDInt, err := qmgmt.NewCluster(ctx)
+	if err != nil {
+		submissionErr = fmt.Errorf("failed to create cluster: %w", err)
+		return 0, nil, submissionErr
+	}
+
+	// Generate job ads from the submit file
+	submitResult, err := submitFile.Submit(clusterIDInt)
+	if err != nil {
+		submissionErr = fmt.Errorf("failed to generate job ads: %w", err)
+		return 0, nil, submissionErr
+	}
+
+	// For remote submission, configure job attributes similar to HTCondor's behavior
+	// This mimics what condor_submit does when using the -name option (remote submission)
+	for _, procAd := range submitResult.ProcAds {
+		// Set ShouldTransferFiles to YES if not already set
+		if expr, ok := procAd.Lookup("ShouldTransferFiles"); !ok || expr == nil {
+			_ = procAd.Set("ShouldTransferFiles", "YES")
+		}
+
+		// Ensure WhenToTransferOutput is set
+		if expr, ok := procAd.Lookup("WhenToTransferOutput"); !ok || expr == nil {
+			_ = procAd.Set("WhenToTransferOutput", "ON_EXIT")
+		}
+
+		// Remote jobs start in HELD status with SpoolingInput hold reason
+		// JobStatus: 5 = HELD
+		_ = procAd.Set("JobStatus", int64(5))
+		// HoldReasonCode: 16 = SpoolingInput
+		_ = procAd.Set("HoldReasonCode", int64(16))
+		_ = procAd.Set("HoldReason", "Spooling input data files")
+
+		// Set LeaveJobInQueue expression for remote jobs
+		// Keep job in queue for 10 days after completion to allow output retrieval
+		if expr, ok := procAd.Lookup("LeaveJobInQueue"); !ok || expr == nil {
+			leaveInQueueExpr, _ := classad.ParseExpr("JobStatus == 4 && (CompletionDate =?= UNDEFINED || CompletionDate == 0 || ((time() - CompletionDate) < 864000))")
+			_ = procAd.Set("LeaveJobInQueue", leaveInQueueExpr)
+		}
+	}
+
+	// Submit each proc
+	resultProcAds := make([]*classad.ClassAd, len(submitResult.ProcAds))
+	for i, procAd := range submitResult.ProcAds {
+		procID, err := qmgmt.NewProc(ctx, clusterIDInt)
+		if err != nil {
+			submissionErr = fmt.Errorf("failed to create proc %d: %w", i, err)
+			return 0, nil, submissionErr
+		}
+
+		// Set ClusterId and ProcId in the ad for later use with file spooling
+		_ = procAd.Set("ClusterId", int64(clusterIDInt))
+		_ = procAd.Set("ProcId", int64(procID))
+
+		// Send job attributes
+		if err := qmgmt.SendJobAttributes(ctx, clusterIDInt, procID, procAd); err != nil {
+			submissionErr = fmt.Errorf("failed to set attributes for proc %d: %w", i, err)
+			return 0, nil, submissionErr
+		}
+
+		// Store the proc ad with ClusterId and ProcId set
+		resultProcAds[i] = procAd
+	}
+
+	// Commit transaction
+	if err := qmgmt.CommitTransaction(ctx); err != nil {
+		submissionErr = fmt.Errorf("failed to commit transaction: %w", err)
+		return 0, nil, submissionErr
+	}
+
+	return clusterIDInt, resultProcAds, nil
+}
+
 // Act performs an action on a job (e.g., remove, hold, release)
 func (s *Schedd) Act(_ context.Context, _ string, _ string) error {
 	// TODO: Implement job action using cedar protocol
