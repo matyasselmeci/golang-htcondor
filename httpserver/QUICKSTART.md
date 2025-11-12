@@ -48,6 +48,8 @@ go build
 
 ## Test the API
 
+### Using Bearer Tokens (Standard Method)
+
 ### Get the OpenAPI Schema
 
 ```bash
@@ -80,6 +82,33 @@ Expected response:
   "job_ids": ["1.0"]
 }
 ```
+
+### Using User Headers (Demo Mode Only)
+
+In demo mode, you can use a custom HTTP header for authentication:
+
+```bash
+# 1. Restart the server with user header support
+./htcondor-api --demo --user-header=X-Remote-User
+```
+
+Now you can make requests without bearer tokens:
+
+```bash
+# Submit a job using username header
+curl -X POST http://localhost:8080/api/v1/jobs \
+  -H "X-Remote-User: alice" \
+  -H "Content-Type: application/json" \
+  -d @submit.json | jq .
+
+# List jobs for that user
+curl http://localhost:8080/api/v1/jobs \
+  -H "X-Remote-User: alice" | jq .
+```
+
+This is useful when testing with reverse proxies that handle authentication and pass the username via header (e.g., Apache with `mod_auth`, nginx with `auth_request`).
+
+**Important:** This feature only works in demo mode and is intended for development/testing. Production deployments should use proper HTCondor TOKEN authentication.
 
 ### List Jobs
 

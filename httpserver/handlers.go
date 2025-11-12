@@ -42,10 +42,10 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 
 // handleListJobs handles GET /api/v1/jobs
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
-	// Extract bearer token or generate from user header
-	token, err := s.extractOrGenerateToken(r)
+	// Create authenticated context
+	ctx, err := s.createAuthenticatedContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Missing or invalid bearer token")
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("Authentication failed: %v", err))
 		return
 	}
 
@@ -63,10 +63,6 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 			projection[i] = strings.TrimSpace(projection[i])
 		}
 	}
-
-	// Create context with token for authentication
-	// TODO: Properly integrate token into schedd authentication
-	ctx := WithToken(r.Context(), token)
 
 	// Query schedd
 	jobAds, err := s.schedd.Query(ctx, constraint, projection)
@@ -91,10 +87,10 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 
 // handleSubmitJob handles POST /api/v1/jobs
 func (s *Server) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
-	// Extract bearer token or generate from user header
-	token, err := s.extractOrGenerateToken(r)
+	// Create authenticated context
+	ctx, err := s.createAuthenticatedContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Missing or invalid bearer token")
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("Authentication failed: %v", err))
 		return
 	}
 
@@ -109,10 +105,6 @@ func (s *Server) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "submit_file is required")
 		return
 	}
-
-	// Create context with token for authentication
-	// TODO: Properly integrate token into schedd authentication
-	ctx := WithToken(r.Context(), token)
 
 	// Submit job using SubmitRemote
 	clusterID, procAds, err := s.schedd.SubmitRemote(ctx, req.SubmitFile)
@@ -179,10 +171,10 @@ func (s *Server) handleJobByID(w http.ResponseWriter, r *http.Request) {
 
 // handleGetJob handles GET /api/v1/jobs/{id}
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request, jobID string) {
-	// Extract bearer token or generate from user header
-	token, err := s.extractOrGenerateToken(r)
+	// Create authenticated context
+	ctx, err := s.createAuthenticatedContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Missing or invalid bearer token")
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("Authentication failed: %v", err))
 		return
 	}
 
@@ -195,10 +187,6 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request, jobID stri
 
 	// Build constraint for specific job
 	constraint := fmt.Sprintf("ClusterId == %d && ProcId == %d", cluster, proc)
-
-	// Create context with token
-	// TODO: Properly integrate token into schedd authentication
-	ctx := WithToken(r.Context(), token)
 
 	// Query for the specific job
 	jobAds, err := s.schedd.Query(ctx, constraint, nil)
@@ -222,10 +210,10 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request, jobID stri
 
 // handleDeleteJob handles DELETE /api/v1/jobs/{id}
 func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request, jobID string) {
-	// Extract bearer token or generate from user header
-	token, err := s.extractOrGenerateToken(r)
+	// Create authenticated context
+	ctx, err := s.createAuthenticatedContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Missing or invalid bearer token")
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("Authentication failed: %v", err))
 		return
 	}
 
@@ -235,10 +223,6 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request, jobID s
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid job ID: %v", err))
 		return
 	}
-
-	// Create context with token
-	// TODO: Properly integrate token into schedd authentication
-	ctx := WithToken(r.Context(), token)
 
 	// TODO: Implement job removal using schedd.Act() or similar API
 	// This requires implementing the job action API in the base library
@@ -251,10 +235,10 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request, jobID s
 
 // handleEditJob handles PATCH /api/v1/jobs/{id}
 func (s *Server) handleEditJob(w http.ResponseWriter, r *http.Request, jobID string) {
-	// Extract bearer token or generate from user header
-	token, err := s.extractOrGenerateToken(r)
+	// Create authenticated context
+	ctx, err := s.createAuthenticatedContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Missing or invalid bearer token")
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("Authentication failed: %v", err))
 		return
 	}
 
@@ -271,10 +255,6 @@ func (s *Server) handleEditJob(w http.ResponseWriter, r *http.Request, jobID str
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid request body: %v", err))
 		return
 	}
-
-	// Create context with token
-	// TODO: Properly integrate token into schedd authentication
-	ctx := WithToken(r.Context(), token)
 
 	// TODO: Implement job editing using schedd QMGMT API
 	// This requires implementing the job edit API in the base library
@@ -293,12 +273,14 @@ func (s *Server) handleJobInput(w http.ResponseWriter, r *http.Request, jobID st
 		return
 	}
 
-	// Extract bearer token or generate from user header
-	token, err := s.extractOrGenerateToken(r)
+	// Create authenticated context
+	ctx, err := s.createAuthenticatedContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Missing or invalid bearer token")
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("Authentication failed: %v", err))
 		return
-	} // Parse job ID
+	}
+
+	// Parse job ID
 	cluster, proc, err := parseJobID(jobID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid job ID: %v", err))
@@ -306,8 +288,6 @@ func (s *Server) handleJobInput(w http.ResponseWriter, r *http.Request, jobID st
 	}
 
 	// First, query for the job to get its proc ad
-	// TODO: Properly integrate token into schedd authentication
-	ctx := WithToken(r.Context(), token)
 	constraint := fmt.Sprintf("ClusterId == %d && ProcId == %d", cluster, proc)
 	jobAds, err := s.schedd.Query(ctx, constraint, nil)
 	if err != nil {
@@ -352,12 +332,14 @@ func (s *Server) handleJobOutput(w http.ResponseWriter, r *http.Request, jobID s
 		return
 	}
 
-	// Extract bearer token or generate from user header
-	token, err := s.extractOrGenerateToken(r)
+	// Create authenticated context
+	ctx, err := s.createAuthenticatedContext(r)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Missing or invalid bearer token")
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("Authentication failed: %v", err))
 		return
-	} // Parse job ID
+	}
+
+	// Parse job ID
 	cluster, proc, err := parseJobID(jobID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid job ID: %v", err))
@@ -366,10 +348,6 @@ func (s *Server) handleJobOutput(w http.ResponseWriter, r *http.Request, jobID s
 
 	// Build constraint for specific job
 	constraint := fmt.Sprintf("ClusterId == %d && ProcId == %d", cluster, proc)
-
-	// Create context with token
-	// TODO: Properly integrate token into schedd authentication
-	ctx := WithToken(r.Context(), token)
 
 	// Set up response as tar stream
 	w.Header().Set("Content-Type", "application/x-tar")
@@ -397,12 +375,12 @@ func parseJobID(jobID string) (cluster, proc int, err error) {
 
 	cluster, err = strconv.Atoi(parts[0])
 	if err != nil {
-		return 0, 0, fmt.Errorf("invalid cluster ID: %v", err)
+		return 0, 0, fmt.Errorf("invalid cluster ID: %w", err)
 	}
 
 	proc, err = strconv.Atoi(parts[1])
 	if err != nil {
-		return 0, 0, fmt.Errorf("invalid proc ID: %v", err)
+		return 0, 0, fmt.Errorf("invalid proc ID: %w", err)
 	}
 
 	return cluster, proc, nil

@@ -137,3 +137,25 @@ func (s *Server) extractOrGenerateToken(r *http.Request) (string, error) {
 	// No token and can't generate one
 	return "", fmt.Errorf("no authorization token and user header not configured")
 }
+
+// createAuthenticatedContext creates a context with both token and SecurityConfig set
+// This is a helper to avoid duplicating security setup code in every handler
+func (s *Server) createAuthenticatedContext(r *http.Request) (context.Context, error) {
+	// Extract bearer token or generate from user header
+	token, err := s.extractOrGenerateToken(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create context with token
+	ctx := WithToken(r.Context(), token)
+	
+	// Convert token to SecurityConfig and add to context
+	secConfig, err := GetSecurityConfigFromToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure security: %w", err)
+	}
+	ctx = htcondor.WithSecurityConfig(ctx, secConfig)
+	
+	return ctx, nil
+}

@@ -81,11 +81,20 @@ func NewQmgmtConnection(ctx context.Context, scheddHost string, scheddPort int) 
 	// Create CEDAR stream
 	cedarStream := stream.NewStream(conn)
 
-	// Configure FS authentication with QMGMT_WRITE_CMD
-	secConfig := &security.SecurityConfig{
-		AuthMethods:    []security.AuthMethod{security.AuthFS},
-		Authentication: security.SecurityRequired,
-		Command:        QMGMT_WRITE_CMD, // Command we want to execute
+	// Check if SecurityConfig is provided in context, otherwise use default FS authentication
+	var secConfig *security.SecurityConfig
+	if ctxSecConfig, ok := GetSecurityConfigFromContext(ctx); ok {
+		// Use security config from context (e.g., TOKEN authentication from HTTP API)
+		secConfig = ctxSecConfig
+		// Ensure command is set to QMGMT_WRITE_CMD
+		secConfig.Command = QMGMT_WRITE_CMD
+	} else {
+		// Use default FS authentication
+		secConfig = &security.SecurityConfig{
+			AuthMethods:    []security.AuthMethod{security.AuthFS},
+			Authentication: security.SecurityRequired,
+			Command:        QMGMT_WRITE_CMD,
+		}
 	}
 
 	// Perform DC_AUTHENTICATE handshake
@@ -96,10 +105,17 @@ func NewQmgmtConnection(ctx context.Context, scheddHost string, scheddPort int) 
 		return nil, fmt.Errorf("authentication handshake failed: %w", err)
 	}
 
-	// Verify authentication succeeded
-	if negotiation.NegotiatedAuth != security.AuthFS {
+	// Verify authentication succeeded (accept any of the configured auth methods)
+	authMethodValid := false
+	for _, method := range secConfig.AuthMethods {
+		if negotiation.NegotiatedAuth == method {
+			authMethodValid = true
+			break
+		}
+	}
+	if !authMethodValid {
 		_ = conn.Close()
-		return nil, fmt.Errorf("expected FS authentication, got %s", negotiation.NegotiatedAuth)
+		return nil, fmt.Errorf("authentication failed: expected one of %v, got %s", secConfig.AuthMethods, negotiation.NegotiatedAuth)
 	}
 
 	// Check return code - should be AUTHORIZED

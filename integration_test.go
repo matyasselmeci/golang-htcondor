@@ -42,7 +42,7 @@ func setupCondorHarness(t *testing.T) *condorTestHarness {
 	sbinDir := filepath.Dir(masterPath)
 
 	// Also check for other required daemons
-	requiredDaemons := []string{"condor_collector", "condor_schedd", "condor_startd"}
+	requiredDaemons := []string{"condor_collector", "condor_schedd", "condor_negotiator", "condor_startd"}
 	for _, daemon := range requiredDaemons {
 		if _, err := exec.LookPath(daemon); err != nil {
 			t.Skipf("%s not found in PATH, skipping integration test", daemon)
@@ -88,8 +88,8 @@ SPOOL = $(LOCAL_DIR)/spool
 EXECUTE = $(LOCAL_DIR)/execute
 LOCK = $(LOCAL_DIR)/lock
 
-# Daemon list - run collector, schedd, and startd
-DAEMON_LIST = MASTER, COLLECTOR, SCHEDD, STARTD
+# Daemon list - run collector, schedd, negotiator, and startd
+DAEMON_LIST = MASTER, COLLECTOR, SCHEDD, NEGOTIATOR, STARTD
 
 # Disable shared port for testing to avoid complexity
 USE_SHARED_PORT = False
@@ -108,6 +108,10 @@ STARTD_NAME = test_startd@$(FULL_HOSTNAME)
 NUM_CPUS = 1
 MEMORY = 512
 STARTER_ALLOW_RUNAS_OWNER = False
+STARTD_ATTRS = HasFileTransfer
+
+# Enable file transfer capability
+HasFileTransfer = True
 
 # Disable GPU detection entirely
 STARTD_DETECT_GPUS = false

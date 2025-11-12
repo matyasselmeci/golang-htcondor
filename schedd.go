@@ -13,6 +13,21 @@ import (
 	"github.com/bbockelm/cedar/stream"
 )
 
+// securityConfigContextKey is the type for the security configuration context key
+type securityConfigContextKey struct{}
+
+// WithSecurityConfig creates a context that includes security configuration
+// This allows passing authentication information (like tokens) from HTTP handlers to Schedd methods
+func WithSecurityConfig(ctx context.Context, secConfig *security.SecurityConfig) context.Context {
+	return context.WithValue(ctx, securityConfigContextKey{}, secConfig)
+}
+
+// GetSecurityConfigFromContext retrieves the security configuration from the context
+func GetSecurityConfigFromContext(ctx context.Context) (*security.SecurityConfig, bool) {
+	secConfig, ok := ctx.Value(securityConfigContextKey{}).(*security.SecurityConfig)
+	return secConfig, ok
+}
+
 // Schedd represents an HTCondor schedd daemon
 type Schedd struct {
 	name    string
@@ -60,14 +75,23 @@ func (s *Schedd) queryWithAuth(ctx context.Context, constraint string, projectio
 		cmd = commands.QUERY_JOB_ADS_WITH_AUTH
 	}
 
-	// Perform security handshake
-	secConfig := &security.SecurityConfig{
-		Command:        cmd,
-		AuthMethods:    []security.AuthMethod{security.AuthSSL, security.AuthToken},
-		Authentication: security.SecurityOptional,
-		CryptoMethods:  []security.CryptoMethod{security.CryptoAES},
-		Encryption:     security.SecurityOptional,
-		Integrity:      security.SecurityOptional,
+	// Check if SecurityConfig is provided in context, otherwise use defaults
+	var secConfig *security.SecurityConfig
+	if ctxSecConfig, ok := GetSecurityConfigFromContext(ctx); ok {
+		// Use security config from context
+		secConfig = ctxSecConfig
+		// Ensure command is set correctly
+		secConfig.Command = cmd
+	} else {
+		// Use default security configuration
+		secConfig = &security.SecurityConfig{
+			Command:        cmd,
+			AuthMethods:    []security.AuthMethod{security.AuthSSL, security.AuthToken},
+			Authentication: security.SecurityOptional,
+			CryptoMethods:  []security.CryptoMethod{security.CryptoAES},
+			Encryption:     security.SecurityOptional,
+			Integrity:      security.SecurityOptional,
+		}
 	}
 
 	auth := security.NewAuthenticator(secConfig, cedarStream)

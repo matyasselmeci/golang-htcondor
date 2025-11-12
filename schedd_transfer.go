@@ -83,13 +83,20 @@ func (s *Schedd) doReceiveJobSandbox(ctx context.Context, constraint string, w i
 	cedarStream := stream.NewStream(conn)
 
 	// 2. Perform DC_AUTHENTICATE handshake with TRANSFER_DATA_WITH_PERMS
-	secConfig := &security.SecurityConfig{
-		Command:        commands.TRANSFER_DATA_WITH_PERMS,
-		AuthMethods:    []security.AuthMethod{security.AuthSSL, security.AuthToken, security.AuthFS},
-		Authentication: security.SecurityOptional,
-		CryptoMethods:  []security.CryptoMethod{security.CryptoAES},
-		Encryption:     security.SecurityOptional,
-		Integrity:      security.SecurityOptional,
+	// Check if SecurityConfig is provided in context, otherwise use defaults
+	var secConfig *security.SecurityConfig
+	if ctxSecConfig, ok := GetSecurityConfigFromContext(ctx); ok {
+		secConfig = ctxSecConfig
+		secConfig.Command = commands.TRANSFER_DATA_WITH_PERMS
+	} else {
+		secConfig = &security.SecurityConfig{
+			Command:        commands.TRANSFER_DATA_WITH_PERMS,
+			AuthMethods:    []security.AuthMethod{security.AuthSSL, security.AuthToken, security.AuthFS},
+			Authentication: security.SecurityOptional,
+			CryptoMethods:  []security.CryptoMethod{security.CryptoAES},
+			Encryption:     security.SecurityOptional,
+			Integrity:      security.SecurityOptional,
+		}
 	}
 
 	auth := security.NewAuthenticator(secConfig, cedarStream)

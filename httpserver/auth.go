@@ -29,23 +29,35 @@ func GetTokenFromContext(ctx context.Context) (string, bool) {
 }
 
 // ConfigureSecurityForToken configures security settings to use the provided token
-// This is a helper function to set up cedar's security configuration
+// This is a helper function to set up cedar's security configuration for TOKEN authentication
 func ConfigureSecurityForToken(token string) (*security.SecurityConfig, error) {
 	if token == "" {
 		return nil, fmt.Errorf("empty token provided")
 	}
 
 	// Create a security configuration that uses TOKEN authentication
+	// The token content is stored in TokenFile field (cedar supports both file paths and direct content)
 	secConfig := &security.SecurityConfig{
 		AuthMethods:    []security.AuthMethod{security.AuthToken},
 		Authentication: security.SecurityRequired,
 		CryptoMethods:  []security.CryptoMethod{security.CryptoAES},
 		Encryption:     security.SecurityOptional,
 		Integrity:      security.SecurityOptional,
-		TokenFile:      token, // Direct token content
+		TokenFile:      token, // Direct token content (cedar accepts both file paths and content)
 	}
 
 	return secConfig, nil
+}
+
+// GetSecurityConfigFromToken retrieves the token from context and creates a SecurityConfig
+// This is a convenience function for HTTP handlers to convert context token to SecurityConfig
+func GetSecurityConfigFromToken(ctx context.Context) (*security.SecurityConfig, error) {
+	token, ok := GetTokenFromContext(ctx)
+	if !ok || token == "" {
+		return nil, fmt.Errorf("no token in context")
+	}
+	
+	return ConfigureSecurityForToken(token)
 }
 
 // GetScheddWithToken creates a schedd connection configured with token authentication
