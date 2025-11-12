@@ -143,6 +143,39 @@ cd examples/file_transfer_demo && go build
 
 See [DEPENDENCIES.md](DEPENDENCIES.md) for information about required dependencies.
 
+## Development
+
+### Setup Development Environment
+
+```bash
+# Clone the repository
+git clone https://github.com/bbockelm/golang-htcondor.git
+cd golang-htcondor
+
+# Install pre-commit hooks (recommended)
+pip install pre-commit
+pre-commit install
+
+# Install golangci-lint
+brew install golangci-lint  # macOS
+# or see https://golangci-lint.run/usage/install/ for other platforms
+
+# Run tests
+go test ./...
+
+# Run linter
+golangci-lint run
+```
+
+### CI/CD
+
+This project uses GitHub Actions for continuous integration:
+- **Tests**: Run on Go 1.21, 1.22, and 1.23
+- **Linting**: golangci-lint with comprehensive checks
+- **Build**: Verifies all packages and examples build successfully
+
+See [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for the full CI configuration.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on contributing to this project.

@@ -146,7 +146,7 @@ func TestQueueFromFile(t *testing.T) {
 green
 blue
 `
-	if err := os.WriteFile(dataFile, []byte(data), 0644); err != nil {
+	if err := os.WriteFile(dataFile, []byte(data), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -184,7 +184,7 @@ func TestQueueCountFromFile(t *testing.T) {
 	data := `item1
 item2
 `
-	if err := os.WriteFile(dataFile, []byte(data), 0644); err != nil {
+	if err := os.WriteFile(dataFile, []byte(data), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -222,7 +222,7 @@ func TestQueueMatching(t *testing.T) {
 	files := []string{"test1.txt", "test2.txt", "test3.txt"}
 	for _, fname := range files {
 		fpath := filepath.Join(tmpDir, fname)
-		if err := os.WriteFile(fpath, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(fpath, []byte("test"), 0600); err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 	}
@@ -232,7 +232,7 @@ func TestQueueMatching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer os.Chdir(oldDir)
+	defer func() { _ = os.Chdir(oldDir) }()
 
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatalf("Failed to change directory: %v", err)
@@ -271,7 +271,7 @@ func TestQueueCountMatching(t *testing.T) {
 	files := []string{"data1.dat", "data2.dat"}
 	for _, fname := range files {
 		fpath := filepath.Join(tmpDir, fname)
-		if err := os.WriteFile(fpath, []byte("test"), 0644); err != nil {
+		if err := os.WriteFile(fpath, []byte("test"), 0600); err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 	}
@@ -281,7 +281,7 @@ func TestQueueCountMatching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer os.Chdir(oldDir)
+	defer func() { _ = os.Chdir(oldDir) }()
 
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatalf("Failed to change directory: %v", err)
@@ -355,7 +355,7 @@ func TestQueueMultipleVariablesFromFile(t *testing.T) {
 green square
 blue triangle
 `
-	if err := os.WriteFile(dataFile, []byte(data), 0644); err != nil {
+	if err := os.WriteFile(dataFile, []byte(data), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -394,7 +394,7 @@ func TestQueueNoMatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	defer os.Chdir(oldDir)
+	defer func() { _ = os.Chdir(oldDir) }()
 
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatalf("Failed to change directory: %v", err)

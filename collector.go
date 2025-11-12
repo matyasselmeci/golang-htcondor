@@ -32,11 +32,16 @@ func NewCollector(address string, port int) *Collector {
 func (c *Collector) QueryAds(ctx context.Context, adType string, constraint string) ([]*classad.ClassAd, error) {
 	// Establish TCP connection
 	addr := net.JoinHostPort(c.address, fmt.Sprintf("%d", c.port))
-	conn, err := net.Dial("tcp", addr)
+	dialer := &net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to collector: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if cerr := conn.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close connection: %w", cerr)
+		}
+	}()
 
 	// Create CEDAR stream
 	cedarStream := stream.NewStream(conn)
@@ -174,13 +179,13 @@ func getTargetTypeForAdType(adType string) string {
 }
 
 // Advertise sends an advertisement to the collector
-func (c *Collector) Advertise(ctx context.Context, ad *classad.ClassAd, command string) error {
+func (c *Collector) Advertise(_ context.Context, _ *classad.ClassAd, _ string) error {
 	// TODO: Implement advertisement using cedar protocol
 	return fmt.Errorf("not implemented")
 }
 
 // LocateDaemon locates a daemon by querying the collector
-func (c *Collector) LocateDaemon(ctx context.Context, daemonType string, name string) (*DaemonLocation, error) {
+func (c *Collector) LocateDaemon(_ context.Context, _ string, _ string) (*DaemonLocation, error) {
 	// TODO: Implement daemon location logic
 	return nil, fmt.Errorf("not implemented")
 }

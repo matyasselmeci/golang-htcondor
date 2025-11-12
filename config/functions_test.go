@@ -9,8 +9,8 @@ import (
 // Test function macros
 
 func TestFunctionENV(t *testing.T) {
-	os.Setenv("TEST_VAR", "test_value")
-	defer os.Unsetenv("TEST_VAR")
+	_ = os.Setenv("TEST_VAR", "test_value")
+	defer func() { _ = os.Unsetenv("TEST_VAR") }()
 
 	cfg := &Config{
 		values:     make(map[string]string),
@@ -167,8 +167,8 @@ func TestFunctionREAL(t *testing.T) {
 }
 
 func TestExpandMacrosWithFunctions(t *testing.T) {
-	os.Setenv("MY_VAR", "from_env")
-	defer os.Unsetenv("MY_VAR")
+	_ = os.Setenv("MY_VAR", "from_env")
+	defer func() { _ = os.Unsetenv("MY_VAR") }()
 
 	cfg := &Config{
 		values: map[string]string{

@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"strings"
 	"unicode"
@@ -75,7 +76,7 @@ func (l *Lexer) readChar() {
 	}
 
 	r, _, err := l.input.ReadRune()
-	if err == io.EOF {
+	if errors.Is(err, io.EOF) {
 		l.atEOF = true
 		l.nextCh = 0
 		return
@@ -270,17 +271,18 @@ func (l *Lexer) readMacro() string {
 
 	depth := 1
 	for depth > 0 && l.ch != 0 {
-		if l.ch == '$' && l.peekChar() == '(' {
+		switch {
+		case l.ch == '$' && l.peekChar() == '(':
 			depth++
 			l.buf.WriteRune(l.ch)
 			l.readChar()
 			l.buf.WriteRune(l.ch)
 			l.readChar()
-		} else if l.ch == '(' {
+		case l.ch == '(':
 			depth++
 			l.buf.WriteRune(l.ch)
 			l.readChar()
-		} else if l.ch == ')' {
+		case l.ch == ')':
 			depth--
 			if depth > 0 {
 				l.buf.WriteRune(l.ch)
@@ -288,7 +290,7 @@ func (l *Lexer) readMacro() string {
 				l.buf.WriteRune(')')
 			}
 			l.readChar()
-		} else {
+		default:
 			l.buf.WriteRune(l.ch)
 			l.readChar()
 		}
@@ -307,8 +309,9 @@ func (l *Lexer) readUntilNewline() string {
 	}
 
 	// Read until newline, handling line continuation
-	for l.ch != '\n' && l.ch != 0 {
-		if l.ch == '\\' && l.peekChar() == '\n' {
+	for l.ch != '\n' && l.ch != 0 && l.ch != '#' {
+		switch {
+		case l.ch == '\\' && l.peekChar() == '\n':
 			// Trim trailing whitespace before the backslash
 			s := l.buf.String()
 			l.buf.Reset()
@@ -320,7 +323,7 @@ func (l *Lexer) readUntilNewline() string {
 			for l.ch == ' ' || l.ch == '\t' {
 				l.readChar()
 			}
-		} else if l.ch == '\\' && l.peekChar() == '\r' {
+		case l.ch == '\\' && l.peekChar() == '\r':
 			// Handle Windows line endings
 			// Trim trailing whitespace before the backslash
 			s := l.buf.String()
@@ -335,10 +338,7 @@ func (l *Lexer) readUntilNewline() string {
 			for l.ch == ' ' || l.ch == '\t' {
 				l.readChar()
 			}
-		} else if l.ch == '#' {
-			// Comment - stop reading
-			break
-		} else {
+		default:
 			l.buf.WriteRune(l.ch)
 			l.readChar()
 		}
@@ -553,17 +553,19 @@ func (l *Lexer) NextToken() *TokenInfo {
 		}
 
 	default:
-		if isIdentStart(l.ch) {
+		switch {
+		case isIdentStart(l.ch):
 			tok.Lit = l.readIdentifier()
 			// Check if it's a keyword
 			if kw, ok := keywords[strings.ToLower(tok.Lit)]; ok {
 				tok.Token = kw
 				// Set flags for special keyword handling
-				if kw == USE {
+				switch kw {
+				case USE:
 					l.afterUse = true
-				} else if kw == IF || kw == ELIF {
+				case IF, ELIF:
 					l.afterIfOrElif = true
-				} else if kw == ERROR || kw == WARNING {
+				case ERROR, WARNING:
 					// Only treat as directive if followed by ':' or whitespace then message
 					// If followed by '=', treat as regular identifier for assignment
 					if l.peekNextNonWhitespace() != '=' {
@@ -576,10 +578,10 @@ func (l *Lexer) NextToken() *TokenInfo {
 			} else {
 				tok.Token = IDENT
 			}
-		} else if unicode.IsDigit(l.ch) || (l.ch == '-' && unicode.IsDigit(l.peekChar())) {
+		case unicode.IsDigit(l.ch) || (l.ch == '-' && unicode.IsDigit(l.peekChar())):
 			tok.Token = NUMBER
 			tok.Lit = l.readNumber()
-		} else {
+		default:
 			tok.Token = ILLEGAL
 			tok.Lit = string(l.ch)
 			l.readChar()

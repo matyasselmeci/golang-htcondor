@@ -98,18 +98,20 @@ func (c *Config) evalSTRING(args string) (string, error) {
 }
 
 // evalRANDOM_INTEGER generates a random integer
+//
+//nolint:revive // Function name matches HTCondor macro convention
 func (c *Config) evalRANDOM_INTEGER(args string) (string, error) {
 	parts := strings.Split(args, ",")
 	if len(parts) < 2 || len(parts) > 3 {
 		return "", fmt.Errorf("RANDOM_INTEGER requires 2 or 3 arguments (min, max [, step])")
 	}
 
-	min, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
+	minVal, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
 	if err != nil {
 		return "", fmt.Errorf("RANDOM_INTEGER: invalid min value")
 	}
 
-	max, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+	maxVal, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
 	if err != nil {
 		return "", fmt.Errorf("RANDOM_INTEGER: invalid max value")
 	}
@@ -126,17 +128,18 @@ func (c *Config) evalRANDOM_INTEGER(args string) (string, error) {
 		return "", fmt.Errorf("RANDOM_INTEGER: step must be positive")
 	}
 
-	if min > max {
+	if minVal > maxVal {
 		return "", fmt.Errorf("RANDOM_INTEGER: min must be <= max")
 	}
 
 	// Calculate number of possible values
-	numValues := (max-min)/step + 1
+	numValues := (maxVal-minVal)/step + 1
 
 	// Generate random value
+	//nolint:gosec // G404: Non-cryptographic random is appropriate for config macros
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	randomIndex := r.Int63n(numValues)
-	result := min + (randomIndex * step)
+	result := minVal + (randomIndex * step)
 
 	return fmt.Sprintf("%d", result), nil
 }
@@ -376,7 +379,7 @@ func (c *Config) evalEVAL(args string) (string, error) {
 		if expr, err := classad.ParseExpr(val); err == nil {
 			ad.InsertExpr(key, expr)
 		} else {
-			ad.Set(key, val)
+			_ = ad.Set(key, val)
 		}
 	}
 
@@ -436,6 +439,7 @@ func (c *Config) evalRANDOM_CHOICE(args string) (string, error) {
 		return "", fmt.Errorf("RANDOM_CHOICE requires at least one argument")
 	}
 
+	//nolint:gosec // G404: Non-cryptographic random is appropriate for config macros
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	randomIndex := r.Intn(len(parts))
 	return parts[randomIndex], nil
@@ -481,16 +485,14 @@ func (c *Config) evalBASENAME(args string) (string, error) {
 	// If a suffix is provided, remove it
 	if len(parts) >= 2 {
 		suffix := strings.TrimSpace(parts[1])
-		if strings.HasSuffix(base, suffix) {
-			base = base[:len(base)-len(suffix)]
-		}
+		base = strings.TrimSuffix(base, suffix)
 	} else {
 		// No suffix provided, behave like $Fnx (remove extension)
 		ext := filepath.Ext(base)
 		if ext != "" {
 			base = base[:len(base)-len(ext)]
 		}
-		base = base + ext // Add back extension if present (Fnx includes extension)
+		base += ext // Add back extension if present (Fnx includes extension)
 	}
 
 	return base, nil
@@ -586,10 +588,11 @@ func (c *Config) evalFilenameFunc(options string, args string) (string, error) {
 	// n and x together means base name with extension
 	// n alone means base name without extension
 	// x alone means extension only
-	if baseName && extension {
+	switch {
+	case baseName && extension:
 		// Both n and x: return basename with extension (like $Fnx)
 		result = filepath.Base(result)
-	} else if baseName {
+	case baseName:
 		// n - Filename without extension
 		base := filepath.Base(result)
 		ext := filepath.Ext(base)
@@ -598,7 +601,7 @@ func (c *Config) evalFilenameFunc(options string, args string) (string, error) {
 		} else {
 			result = base
 		}
-	} else if extension {
+	case extension:
 		// x - File extension with period
 		ext := filepath.Ext(filepath.Base(result))
 		if noTrailing && strings.HasPrefix(ext, ".") {

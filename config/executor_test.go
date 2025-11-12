@@ -149,7 +149,7 @@ func TestExecuteIncludeFile(t *testing.T) {
 	configFile := filepath.Join(tmpDir, "test.config")
 
 	content := "INCLUDED_VAR = from_file"
-	if err := os.WriteFile(configFile, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(configFile, []byte(content), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -181,7 +181,7 @@ func TestExecuteIncludeGlob(t *testing.T) {
 	for i := 1; i <= 3; i++ {
 		configFile := filepath.Join(tmpDir, fmt.Sprintf("config%d.conf", i))
 		content := fmt.Sprintf("VAR%d = value%d", i, i)
-		if err := os.WriteFile(configFile, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(configFile, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 	}
@@ -261,14 +261,14 @@ func TestExecuteCircularInclude(t *testing.T) {
 	// config1 includes config2
 	content1 := fmt.Sprintf(`VAR1 = value1
 include "%s"`, config2)
-	if err := os.WriteFile(config1, []byte(content1), 0644); err != nil {
+	if err := os.WriteFile(config1, []byte(content1), 0600); err != nil {
 		t.Fatalf("Failed to create config1: %v", err)
 	}
 
 	// config2 includes config1 (circular)
 	content2 := fmt.Sprintf(`VAR2 = value2
 include "%s"`, config1)
-	if err := os.WriteFile(config2, []byte(content2), 0644); err != nil {
+	if err := os.WriteFile(config2, []byte(content2), 0600); err != nil {
 		t.Fatalf("Failed to create config2: %v", err)
 	}
 

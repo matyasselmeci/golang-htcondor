@@ -140,9 +140,10 @@ func getSecurityMethods(cfg *config.Config, context, feature string) string {
 	}
 
 	// Return HTCondor's default based on platform
-	if feature == "AUTHENTICATION_METHODS" {
+	switch feature {
+	case "AUTHENTICATION_METHODS":
 		return getDefaultAuthMethods()
-	} else if feature == "CRYPTO_METHODS" {
+	case "CRYPTO_METHODS":
 		return "AES" // HTCondor 9.0+ default
 	}
 

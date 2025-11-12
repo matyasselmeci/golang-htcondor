@@ -33,11 +33,12 @@ func condorSubmitAvailable() bool {
 
 // parseOldClassAdFile parses a ClassAd file in old format (key=value pairs)
 func parseOldClassAdFile(path string) (*classad.ClassAd, error) {
+	//nolint:gosec // G304: Test helper for reading test files
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Build a full ClassAd string
 	var builder strings.Builder
@@ -85,11 +86,11 @@ func runCondorSubmit(submitContent string) (*classad.ClassAd, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Write submit file
 	submitPath := filepath.Join(tmpDir, "test.submit")
-	if err := os.WriteFile(submitPath, []byte(submitContent), 0644); err != nil {
+	if err := os.WriteFile(submitPath, []byte(submitContent), 0600); err != nil {
 		return nil, fmt.Errorf("failed to write submit file: %w", err)
 	}
 
@@ -97,6 +98,7 @@ func runCondorSubmit(submitContent string) (*classad.ClassAd, error) {
 	classadPath := filepath.Join(tmpDir, "test.classad")
 
 	// Run condor_submit -dry-run
+	//nolint:gosec,noctx // G204: Test uses fixed condor_submit command; noctx: test doesn't need cancellation
 	cmd := exec.Command("condor_submit", "-dry-run", classadPath, submitPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

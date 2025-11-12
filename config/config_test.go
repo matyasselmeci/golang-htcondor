@@ -386,11 +386,9 @@ func TestPriority1RuntimeMacros(t *testing.T) {
 
 		if !hasConfigRoot {
 			t.Error("CONFIG_ROOT should always be set")
-		} else {
+		} else if !filepath.IsAbs(configRoot) {
 			// Should be an absolute path
-			if !filepath.IsAbs(configRoot) {
-				t.Errorf("CONFIG_ROOT = %q is not an absolute path", configRoot)
-			}
+			t.Errorf("CONFIG_ROOT = %q is not an absolute path", configRoot)
 		}
 	})
 
@@ -418,15 +416,15 @@ func TestCONFIG_ROOTWithEnvVar(t *testing.T) {
 	origCondorConfig := os.Getenv("CONDOR_CONFIG")
 	defer func() {
 		if origCondorConfig != "" {
-			os.Setenv("CONDOR_CONFIG", origCondorConfig)
+			_ = os.Setenv("CONDOR_CONFIG", origCondorConfig)
 		} else {
-			os.Unsetenv("CONDOR_CONFIG")
+			_ = os.Unsetenv("CONDOR_CONFIG")
 		}
 	}()
 
 	// Test with CONDOR_CONFIG set
 	testPath := "/opt/condor/etc/condor_config"
-	os.Setenv("CONDOR_CONFIG", testPath)
+	_ = os.Setenv("CONDOR_CONFIG", testPath)
 
 	cfg, err := NewFromReader(strings.NewReader(""))
 	if err != nil {
@@ -451,14 +449,14 @@ func TestDETECTED_CPUS_LIMITWithEnvVars(t *testing.T) {
 	origSLURM := os.Getenv("SLURM_CPUS_ON_NODE")
 	defer func() {
 		if origOMP != "" {
-			os.Setenv("OMP_THREAD_LIMIT", origOMP)
+			_ = os.Setenv("OMP_THREAD_LIMIT", origOMP)
 		} else {
-			os.Unsetenv("OMP_THREAD_LIMIT")
+			_ = os.Unsetenv("OMP_THREAD_LIMIT")
 		}
 		if origSLURM != "" {
-			os.Setenv("SLURM_CPUS_ON_NODE", origSLURM)
+			_ = os.Setenv("SLURM_CPUS_ON_NODE", origSLURM)
 		} else {
-			os.Unsetenv("SLURM_CPUS_ON_NODE")
+			_ = os.Unsetenv("SLURM_CPUS_ON_NODE")
 		}
 	}()
 
@@ -507,14 +505,14 @@ func TestDETECTED_CPUS_LIMITWithEnvVars(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set environment variables
 			if tt.ompLimit != "" {
-				os.Setenv("OMP_THREAD_LIMIT", tt.ompLimit)
+				_ = os.Setenv("OMP_THREAD_LIMIT", tt.ompLimit)
 			} else {
-				os.Unsetenv("OMP_THREAD_LIMIT")
+				_ = os.Unsetenv("OMP_THREAD_LIMIT")
 			}
 			if tt.slurmLimit != "" {
-				os.Setenv("SLURM_CPUS_ON_NODE", tt.slurmLimit)
+				_ = os.Setenv("SLURM_CPUS_ON_NODE", tt.slurmLimit)
 			} else {
-				os.Unsetenv("SLURM_CPUS_ON_NODE")
+				_ = os.Unsetenv("SLURM_CPUS_ON_NODE")
 			}
 
 			cfg, err := NewFromReader(strings.NewReader(""))

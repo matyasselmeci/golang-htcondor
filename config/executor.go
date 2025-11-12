@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -172,6 +173,7 @@ func (c *Config) includeFile(path string, optional bool) error {
 	}
 
 	// Open the file
+	//nolint:gosec // G304: Config path comes from validated config directive
 	f, err := os.Open(path)
 	if err != nil {
 		if optional && os.IsNotExist(err) {
@@ -179,7 +181,11 @@ func (c *Config) includeFile(path string, optional bool) error {
 		}
 		return fmt.Errorf("error opening %q: %w", path, err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close file: %w", cerr)
+		}
+	}()
 
 	// Mark as included
 	c.includedFiles[absPath] = true
@@ -192,7 +198,7 @@ func (c *Config) includeFile(path string, optional bool) error {
 // includeCommand executes a command and includes its output
 func (c *Config) includeCommand(command string) error {
 	// Execute the command
-	cmd := exec.Command("sh", "-c", command)
+	cmd := exec.CommandContext(context.Background(), "sh", "-c", command)
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("error executing command %q: %w", command, err)

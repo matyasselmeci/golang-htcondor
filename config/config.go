@@ -25,6 +25,7 @@ package config
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -331,26 +332,27 @@ func detectIPAddresses() (string, string, string) {
 			priority := 0
 
 			// Determine priority
-			if ip.IsLoopback() {
+			switch {
+			case ip.IsLoopback():
 				priority = 2 // Lowest priority
-			} else if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			case ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast():
 				priority = 1 // Medium priority
-			} else {
+			default:
 				priority = 0 // Highest priority
 			}
 
 			// Categorize by IP version
 			if ip.To4() != nil {
 				ipv4Addresses = append(ipv4Addresses, ipStr)
+				//nolint:staticcheck // SA4010: False positive - slice is sorted and used later
 				ipv4WithPrio = append(ipv4WithPrio, addressWithPriority{ipStr, priority})
 			} else if ip.To16() != nil {
 				ipv6Addresses = append(ipv6Addresses, ipStr)
+				//nolint:staticcheck // SA4010: False positive - slice is sorted and used later
 				ipv6WithPrio = append(ipv6WithPrio, addressWithPriority{ipStr, priority})
 			}
 		}
-	}
-
-	// Sort by priority (lowest priority value first)
+	} // Sort by priority (lowest priority value first)
 	sort.Slice(ipv4WithPrio, func(i, j int) bool {
 		if ipv4WithPrio[i].priority != ipv4WithPrio[j].priority {
 			return ipv4WithPrio[i].priority < ipv4WithPrio[j].priority
@@ -476,19 +478,20 @@ func detectCPUsLinux() (int, int, bool) {
 	lines := strings.Split(string(data), "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "processor") {
+		switch {
+		case strings.HasPrefix(line, "processor"):
 			logicalCPUs++
 			// Reset for next processor
 			currentPhysID = -1
 			currentCoreID = -1
-		} else if strings.HasPrefix(line, "physical id") {
+		case strings.HasPrefix(line, "physical id"):
 			parts := strings.SplitN(line, ":", 2)
 			if len(parts) == 2 {
 				if id, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
 					currentPhysID = id
 				}
 			}
-		} else if strings.HasPrefix(line, "core id") {
+		case strings.HasPrefix(line, "core id"):
 			parts := strings.SplitN(line, ":", 2)
 			if len(parts) == 2 {
 				if id, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
@@ -501,9 +504,7 @@ func detectCPUsLinux() (int, int, bool) {
 		if currentPhysID >= 0 && currentCoreID >= 0 {
 			physicalCores[physCore{currentPhysID, currentCoreID}] = true
 		}
-	}
-
-	// If we didn't find physical/core IDs, assume no hyperthreading
+	} // If we didn't find physical/core IDs, assume no hyperthreading
 	physCount := len(physicalCores)
 	if physCount == 0 {
 		physCount = logicalCPUs
@@ -563,7 +564,7 @@ func detectMemorySyscall() int {
 
 // detectMemorySysctl uses sysctl to get memory on BSD-like systems
 func detectMemorySysctl() int {
-	cmd := exec.Command("sysctl", "-n", "hw.memsize")
+	cmd := exec.CommandContext(context.Background(), "sysctl", "-n", "hw.memsize")
 	output, err := cmd.Output()
 	if err != nil {
 		return 0
@@ -657,7 +658,7 @@ func detectLinuxVersion() string {
 
 // detectDarwinVersion detects macOS version
 func detectDarwinVersion() string {
-	cmd := exec.Command("sw_vers", "-productVersion")
+	cmd := exec.CommandContext(context.Background(), "sw_vers", "-productVersion")
 	output, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -673,7 +674,7 @@ func detectDarwinVersion() string {
 // detectWindowsVersion detects Windows version
 func detectWindowsVersion() string {
 	// Use ver command or fallback
-	cmd := exec.Command("cmd", "/c", "ver")
+	cmd := exec.CommandContext(context.Background(), "cmd", "/c", "ver")
 	output, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -970,11 +971,16 @@ func (c *Config) LoadFromEnvironment() error {
 		}
 
 		// Try to load the config file
+		//nolint:gosec // G304: Config path comes from validated environment/parameters
 		f, err := os.Open(configPath)
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer func() {
+			if cerr := f.Close(); cerr != nil && err == nil {
+				err = fmt.Errorf("failed to close config file: %w", cerr)
+			}
+		}()
 
 		return c.parseReader(f, configPath)
 	}
@@ -986,9 +992,14 @@ func (c *Config) LoadFromEnvironment() error {
 	}
 
 	for _, path := range defaultPaths {
+		//nolint:gosec // G304: Checking known default config paths
 		f, err := os.Open(path)
 		if err == nil {
-			defer f.Close()
+			defer func() {
+				if cerr := f.Close(); cerr != nil && err == nil {
+					err = fmt.Errorf("failed to close config file: %w", cerr)
+				}
+			}()
 			return c.parseReader(f, path)
 		}
 	}
@@ -1043,13 +1054,15 @@ func (c *Config) processLocalConfigDir() error {
 			filePath := filepath.Join(dir, entry.Name())
 
 			// Open and parse the file
+			//nolint:gosec // G304: Config directory path comes from validated configuration
 			f, err := os.Open(filePath)
 			if err != nil {
 				return fmt.Errorf("error opening %s: %w", filePath, err)
 			}
-
 			err = c.parseAndExecute(f)
-			f.Close()
+			if cerr := f.Close(); cerr != nil && err == nil {
+				err = fmt.Errorf("failed to close file: %w", cerr)
+			}
 
 			if err != nil {
 				return fmt.Errorf("error parsing %s: %w", filePath, err)
@@ -1089,13 +1102,15 @@ func (c *Config) processLocalConfigFile() error {
 		}
 
 		// Regular file - open and parse
+		//nolint:gosec // G304: File path comes from validated config directive
 		f, err := os.Open(file)
 		if err != nil {
 			return fmt.Errorf("error opening %s: %w", file, err)
 		}
-
 		err = c.parseAndExecute(f)
-		f.Close()
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close file: %w", cerr)
+		}
 
 		if err != nil {
 			return fmt.Errorf("error parsing %s: %w", file, err)

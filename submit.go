@@ -861,19 +861,19 @@ func (sf *SubmitFile) setCustomAttributes(ad *classad.ClassAd) error {
 		// First, check if it's a boolean
 		value = strings.TrimSpace(value)
 		if strings.ToLower(value) == "true" || strings.ToLower(value) == "false" {
-			ad.Set(attrName, parseBool(value, false))
+			_ = ad.Set(attrName, parseBool(value, false))
 			continue
 		}
 
 		// Check if it's an integer
 		if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
-			ad.Set(attrName, int(intVal))
+			_ = ad.Set(attrName, int(intVal))
 			continue
 		}
 
 		// Check if it's a float
 		if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
-			ad.Set(attrName, floatVal)
+			_ = ad.Set(attrName, floatVal)
 			continue
 		}
 
@@ -882,12 +882,12 @@ func (sf *SubmitFile) setCustomAttributes(ad *classad.ClassAd) error {
 		if strings.ContainsAny(value, "()&|=<>!") {
 			// This is likely a ClassAd expression, store as string
 			// The ClassAd library will parse it as an expression
-			ad.Set(attrName, value)
+			_ = ad.Set(attrName, value)
 			continue
 		}
 
 		// Default to string
-		ad.Set(attrName, value)
+		_ = ad.Set(attrName, value)
 	}
 
 	return nil
@@ -1005,8 +1005,8 @@ func (sf *SubmitFile) setGridParams(ad *classad.ClassAd) error {
 	if gceAuthFile, ok := sf.cfg.Get("gce_auth_file"); ok {
 		_ = ad.Set("GceAuthFile", gceAuthFile)
 	}
-	if gceJsonFile, ok := sf.cfg.Get("gce_json_file"); ok {
-		_ = ad.Set("GceJsonFile", gceJsonFile)
+	if gceJSONFile, ok := sf.cfg.Get("gce_json_file"); ok {
+		_ = ad.Set("GceJsonFile", gceJSONFile)
 	}
 	if gceMetadata, ok := sf.cfg.Get("gce_metadata"); ok {
 		_ = ad.Set("GceMetadata", gceMetadata)

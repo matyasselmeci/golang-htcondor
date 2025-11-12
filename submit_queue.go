@@ -137,11 +137,12 @@ func newFileIterator(varNames []string, filename string, count int) (*fileIterat
 	}
 
 	// Read lines from file
+	//nolint:gosec // G304: Queue file path comes from user submit description
 	f, err := os.Open(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open queue file %q: %w", filename, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var lines []string
 	scanner := bufio.NewScanner(f)

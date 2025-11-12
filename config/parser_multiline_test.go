@@ -18,9 +18,6 @@ C = third
 
 	if len(stmts) != 3 {
 		t.Fatalf("Expected 3 statements, got %d", len(stmts))
-		for i, stmt := range stmts {
-			t.Logf("Statement %d: %T %+v", i, stmt, stmt)
-		}
 	}
 
 	expected := []struct {

@@ -58,8 +58,8 @@ const (
 	// CommandXferX509 transfers X.509 credential
 	CommandXferX509 TransferCommand = 4
 
-	// CommandDownloadUrl downloads from URL
-	CommandDownloadUrl TransferCommand = 5
+	// CommandDownloadURL downloads from URL
+	CommandDownloadURL TransferCommand = 5
 
 	// CommandMkdir creates directory
 	CommandMkdir TransferCommand = 6
@@ -146,11 +146,16 @@ func (ftc *FileTransferClient) UploadFile(ctx context.Context, item FileTransfer
 	item.FileMode = uint32(stat.Mode().Perm())
 
 	// 2. Connect to schedd
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ftc.daemonAddr, ftc.daemonPort), 30*time.Second)
+	dialer := &net.Dialer{Timeout: 30 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", ftc.daemonAddr, ftc.daemonPort))
 	if err != nil {
 		return fmt.Errorf("failed to connect to schedd: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if cerr := conn.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close connection: %w", cerr)
+		}
+	}()
 
 	// 3. Create CEDAR stream
 	cedarStream := stream.NewStream(conn)
@@ -216,7 +221,6 @@ func (ftc *FileTransferClient) UploadFile(ctx context.Context, item FileTransfer
 		return fmt.Errorf("failed to finish command message: %w", err)
 	}
 
-
 	return nil
 }
 
@@ -246,11 +250,16 @@ func (ftc *FileTransferClient) UploadFile(ctx context.Context, item FileTransfer
 // TODO: Still missing Daemon.StartCommand() - currently must manually send command code.
 func (ftc *FileTransferClient) DownloadFile(ctx context.Context, remotePath string, localPath string) error {
 	// 1. Connect to schedd
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ftc.daemonAddr, ftc.daemonPort), 30*time.Second)
+	dialer := &net.Dialer{Timeout: 30 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", ftc.daemonAddr, ftc.daemonPort))
 	if err != nil {
 		return fmt.Errorf("failed to connect to schedd: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if cerr := conn.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close connection: %w", cerr)
+		}
+	}()
 
 	// 2. Create CEDAR stream
 	cedarStream := stream.NewStream(conn)
@@ -368,6 +377,7 @@ func (ftc *FileTransferClient) receiveFileMetadata(s *stream.Stream) (*FileTrans
 
 	if fileMode := ad.EvaluateAttr("FileMode"); !fileMode.IsError() && fileMode.IsInteger() {
 		if num, err := fileMode.IntValue(); err == nil {
+			//nolint:gosec // G115: File mode is always in safe range (0-0777)
 			item.FileMode = uint32(num)
 		}
 	}
@@ -421,7 +431,7 @@ func NewFileTransferServer(transKey string, baseDir string) *FileTransferServer 
 //  5. Wait for CommandFinished
 //
 // NOTE: Command registration API not yet available in CEDAR Go library.
-func (fts *FileTransferServer) HandleUpload(ctx context.Context, s *stream.Stream) error {
+func (fts *FileTransferServer) HandleUpload(_ context.Context, _ *stream.Stream) error {
 	// TODO: Implement server-side upload handling
 	return fmt.Errorf("HandleUpload not yet implemented - requires command registration API")
 
@@ -485,7 +495,7 @@ func (fts *FileTransferServer) HandleUpload(ctx context.Context, s *stream.Strea
 //  4. Send CommandFinished
 //
 // NOTE: Command registration API not yet available in CEDAR Go library.
-func (fts *FileTransferServer) HandleDownload(ctx context.Context, s *stream.Stream) error {
+func (fts *FileTransferServer) HandleDownload(_ context.Context, _ *stream.Stream) error {
 	// TODO: Implement server-side download handling
 	return fmt.Errorf("HandleDownload not yet implemented - requires command registration API")
 }
@@ -516,6 +526,7 @@ func (fts *FileTransferServer) receiveFileMetadata(s *stream.Stream) (*FileTrans
 
 	if fileMode := ad.EvaluateAttr("FileMode"); !fileMode.IsError() && fileMode.IsInteger() {
 		if num, err := fileMode.IntValue(); err == nil {
+			//nolint:gosec // G115: File mode is always in safe range (0-0777)
 			item.FileMode = uint32(num)
 		}
 	}
@@ -526,11 +537,16 @@ func (fts *FileTransferServer) receiveFileMetadata(s *stream.Stream) (*FileTrans
 // Helper function to send file (server-side)
 func (fts *FileTransferServer) sendFile(s *stream.Stream, filePath string) error {
 	// Open file
+	//nolint:gosec // G304: File path comes from validated transfer request
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if cerr := file.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close file: %w", cerr)
+		}
+	}()
 
 	// Get file info
 	stat, err := file.Stat()

@@ -35,7 +35,7 @@ func TestConfigResolutionOrder(t *testing.T) {
 # Root configuration
 ROOT_VAR = from_root
 SHARED_VAR = from_root
-`), 0644); err != nil {
+`), 0600); err != nil {
 		t.Fatalf("Failed to create root config: %v", err)
 	}
 
@@ -73,10 +73,10 @@ func TestLOCAL_CONFIG_DIR(t *testing.T) {
 	configDir1 := filepath.Join(tmpDir, "config.d")
 	configDir2 := filepath.Join(tmpDir, "config2.d")
 
-	if err := os.MkdirAll(configDir1, 0755); err != nil {
+	if err := os.MkdirAll(configDir1, 0750); err != nil {
 		t.Fatalf("Failed to create config.d: %v", err)
 	}
-	if err := os.MkdirAll(configDir2, 0755); err != nil {
+	if err := os.MkdirAll(configDir2, 0750); err != nil {
 		t.Fatalf("Failed to create config2.d: %v", err)
 	}
 
@@ -89,7 +89,7 @@ func TestLOCAL_CONFIG_DIR(t *testing.T) {
 	}
 
 	for path, content := range files {
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create %s: %v", path, err)
 		}
 	}
@@ -98,7 +98,7 @@ func TestLOCAL_CONFIG_DIR(t *testing.T) {
 	t.Run("CommaSeparated", func(t *testing.T) {
 		rootConfig := filepath.Join(tmpDir, "root_comma.config")
 		content := fmt.Sprintf("LOCAL_CONFIG_DIR = %s,%s\n", configDir1, configDir2)
-		if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create root config: %v", err)
 		}
 
@@ -127,7 +127,7 @@ func TestLOCAL_CONFIG_DIR(t *testing.T) {
 	t.Run("SpaceSeparated", func(t *testing.T) {
 		rootConfig := filepath.Join(tmpDir, "root_space.config")
 		content := fmt.Sprintf("LOCAL_CONFIG_DIR = %s %s\n", configDir1, configDir2)
-		if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create root config: %v", err)
 		}
 
@@ -149,7 +149,7 @@ func TestLOCAL_CONFIG_DIR(t *testing.T) {
 	t.Run("LexicographicalOrder", func(t *testing.T) {
 		rootConfig := filepath.Join(tmpDir, "root_lex.config")
 		content := fmt.Sprintf("LOCAL_CONFIG_DIR = %s\n", configDir1)
-		if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create root config: %v", err)
 		}
 
@@ -178,29 +178,29 @@ func TestLOCAL_CONFIG_DIR_Reprocessing(t *testing.T) {
 	configDir1 := filepath.Join(tmpDir, "config.d")
 	configDir2 := filepath.Join(tmpDir, "config2.d")
 
-	if err := os.MkdirAll(configDir1, 0755); err != nil {
+	if err := os.MkdirAll(configDir1, 0750); err != nil {
 		t.Fatalf("Failed to create config.d: %v", err)
 	}
-	if err := os.MkdirAll(configDir2, 0755); err != nil {
+	if err := os.MkdirAll(configDir2, 0750); err != nil {
 		t.Fatalf("Failed to create config2.d: %v", err)
 	}
 
 	// Create files that will modify LOCAL_CONFIG_DIR
 	file1 := filepath.Join(configDir1, "10-first.config")
 	content1 := fmt.Sprintf("FROM_DIR1 = yes\nLOCAL_CONFIG_DIR = %s\n", configDir2)
-	if err := os.WriteFile(file1, []byte(content1), 0644); err != nil {
+	if err := os.WriteFile(file1, []byte(content1), 0600); err != nil {
 		t.Fatalf("Failed to create file1: %v", err)
 	}
 
 	file2 := filepath.Join(configDir2, "20-second.config")
-	if err := os.WriteFile(file2, []byte("FROM_DIR2 = yes\n"), 0644); err != nil {
+	if err := os.WriteFile(file2, []byte("FROM_DIR2 = yes\n"), 0600); err != nil {
 		t.Fatalf("Failed to create file2: %v", err)
 	}
 
 	// Root config sets initial LOCAL_CONFIG_DIR
 	rootConfig := filepath.Join(tmpDir, "root.config")
 	content := fmt.Sprintf("LOCAL_CONFIG_DIR = %s\n", configDir1)
-	if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 		t.Fatalf("Failed to create root config: %v", err)
 	}
 
@@ -242,13 +242,13 @@ func TestLOCAL_CONFIG_FILE(t *testing.T) {
 	file2 := filepath.Join(tmpDir, "local2.config")
 	file3 := filepath.Join(tmpDir, "local3.config")
 
-	if err := os.WriteFile(file1, []byte("VAR = from_file1\nSHARED = file1"), 0644); err != nil {
+	if err := os.WriteFile(file1, []byte("VAR = from_file1\nSHARED = file1"), 0600); err != nil {
 		t.Fatalf("Failed to create file1: %v", err)
 	}
-	if err := os.WriteFile(file2, []byte("VAR = from_file2\nSHARED = file2"), 0644); err != nil {
+	if err := os.WriteFile(file2, []byte("VAR = from_file2\nSHARED = file2"), 0600); err != nil {
 		t.Fatalf("Failed to create file2: %v", err)
 	}
-	if err := os.WriteFile(file3, []byte("VAR = from_file3\nSHARED = file3"), 0644); err != nil {
+	if err := os.WriteFile(file3, []byte("VAR = from_file3\nSHARED = file3"), 0600); err != nil {
 		t.Fatalf("Failed to create file3: %v", err)
 	}
 
@@ -256,7 +256,7 @@ func TestLOCAL_CONFIG_FILE(t *testing.T) {
 	t.Run("CommaSeparated", func(t *testing.T) {
 		rootConfig := filepath.Join(tmpDir, "root_comma.config")
 		content := fmt.Sprintf("LOCAL_CONFIG_FILE = %s,%s,%s\n", file1, file2, file3)
-		if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create root config: %v", err)
 		}
 
@@ -279,7 +279,7 @@ func TestLOCAL_CONFIG_FILE(t *testing.T) {
 	t.Run("SpaceSeparated", func(t *testing.T) {
 		rootConfig := filepath.Join(tmpDir, "root_space.config")
 		content := fmt.Sprintf("LOCAL_CONFIG_FILE = %s %s %s\n", file1, file2, file3)
-		if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create root config: %v", err)
 		}
 
@@ -301,7 +301,7 @@ func TestLOCAL_CONFIG_FILE(t *testing.T) {
 	t.Run("MixedSeparators", func(t *testing.T) {
 		rootConfig := filepath.Join(tmpDir, "root_mixed.config")
 		content := fmt.Sprintf("LOCAL_CONFIG_FILE = %s, %s %s\n", file1, file2, file3)
-		if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create root config: %v", err)
 		}
 
@@ -326,14 +326,14 @@ func TestIncludeDirectiveFile(t *testing.T) {
 
 	// Create included file
 	includedFile := filepath.Join(tmpDir, "included.config")
-	if err := os.WriteFile(includedFile, []byte("INCLUDED_VAR = from_included\n"), 0644); err != nil {
+	if err := os.WriteFile(includedFile, []byte("INCLUDED_VAR = from_included\n"), 0600); err != nil {
 		t.Fatalf("Failed to create included file: %v", err)
 	}
 
 	// Create root config with include directive using HTCondor standard colon syntax
 	rootConfig := filepath.Join(tmpDir, "root.config")
 	content := fmt.Sprintf("ROOT_VAR = from_root\ninclude : \"%s\"\n", includedFile)
-	if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 		t.Fatalf("Failed to create root config: %v", err)
 	}
 
@@ -356,7 +356,7 @@ func TestIncludeIfExist(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	existingFile := filepath.Join(tmpDir, "existing.config")
-	if err := os.WriteFile(existingFile, []byte("EXISTING = yes\n"), 0644); err != nil {
+	if err := os.WriteFile(existingFile, []byte("EXISTING = yes\n"), 0600); err != nil {
 		t.Fatalf("Failed to create existing file: %v", err)
 	}
 
@@ -366,7 +366,7 @@ func TestIncludeIfExist(t *testing.T) {
 	t.Run("ExistingFile", func(t *testing.T) {
 		rootConfig := filepath.Join(tmpDir, "root_exist.config")
 		content := fmt.Sprintf("include ifexist : \"%s\"\n", existingFile)
-		if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create root config: %v", err)
 		}
 
@@ -384,7 +384,7 @@ func TestIncludeIfExist(t *testing.T) {
 	t.Run("NonExistingFile", func(t *testing.T) {
 		rootConfig := filepath.Join(tmpDir, "root_noexist.config")
 		content := fmt.Sprintf("TEST = value\ninclude ifexist : \"%s\"\n", nonExistingFile)
-		if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create root config: %v", err)
 		}
 
@@ -403,7 +403,7 @@ func TestIncludeIfExist(t *testing.T) {
 	t.Run("RegularIncludeFails", func(t *testing.T) {
 		rootConfig := filepath.Join(tmpDir, "root_fail.config")
 		content := fmt.Sprintf("include : \"%s\"\n", nonExistingFile)
-		if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create root config: %v", err)
 		}
 
@@ -423,7 +423,7 @@ func TestIncludeCommand(t *testing.T) {
 		rootConfig := filepath.Join(tmpDir, "root_cmd.config")
 		// Use echo to output config
 		content := "include command : \"echo 'CMD_VAR = from_command'\"\n"
-		if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create root config: %v", err)
 		}
 
@@ -449,7 +449,7 @@ func TestIncludeCommandWithCache(t *testing.T) {
 	t.Run("CacheCreation", func(t *testing.T) {
 		rootConfig := filepath.Join(tmpDir, "root_cache1.config")
 		content := fmt.Sprintf("include ifexist command into %s : echo 'CACHED = first_run'\n", cacheFile)
-		if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create root config: %v", err)
 		}
 
@@ -473,7 +473,7 @@ func TestIncludeCommandWithCache(t *testing.T) {
 		// Modify the command but keep same cache file
 		rootConfig := filepath.Join(tmpDir, "root_cache2.config")
 		content := fmt.Sprintf("include ifexist command into %s : echo 'CACHED = second_run'\n", cacheFile)
-		if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create root config: %v", err)
 		}
 
@@ -497,30 +497,30 @@ func TestCompleteConfigurationLoading(t *testing.T) {
 
 	// Set up directory structure
 	configDir := filepath.Join(tmpDir, "config.d")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0750); err != nil {
 		t.Fatalf("Failed to create config.d: %v", err)
 	}
 
 	// Create files in config.d with lexicographical ordering
 	dirFile1 := filepath.Join(configDir, "10-base.config")
-	if err := os.WriteFile(dirFile1, []byte("FROM_DIR = dir_file_1\nOVERRIDE = from_dir\n"), 0644); err != nil {
+	if err := os.WriteFile(dirFile1, []byte("FROM_DIR = dir_file_1\nOVERRIDE = from_dir\n"), 0600); err != nil {
 		t.Fatalf("Failed to create dir file 1: %v", err)
 	}
 
 	dirFile2 := filepath.Join(configDir, "20-override.config")
-	if err := os.WriteFile(dirFile2, []byte("FROM_DIR = dir_file_2\n"), 0644); err != nil {
+	if err := os.WriteFile(dirFile2, []byte("FROM_DIR = dir_file_2\n"), 0600); err != nil {
 		t.Fatalf("Failed to create dir file 2: %v", err)
 	}
 
 	// Create LOCAL_CONFIG_FILE
 	localFile := filepath.Join(tmpDir, "local.config")
-	if err := os.WriteFile(localFile, []byte("FROM_LOCAL_FILE = yes\nOVERRIDE = from_local_file\n"), 0644); err != nil {
+	if err := os.WriteFile(localFile, []byte("FROM_LOCAL_FILE = yes\nOVERRIDE = from_local_file\n"), 0600); err != nil {
 		t.Fatalf("Failed to create local file: %v", err)
 	}
 
 	// Create include file
 	includeFile := filepath.Join(tmpDir, "included.config")
-	if err := os.WriteFile(includeFile, []byte("FROM_INCLUDE = yes\nOVERRIDE = from_include\n"), 0644); err != nil {
+	if err := os.WriteFile(includeFile, []byte("FROM_INCLUDE = yes\nOVERRIDE = from_include\n"), 0600); err != nil {
 		t.Fatalf("Failed to create include file: %v", err)
 	}
 
@@ -533,7 +533,7 @@ LOCAL_CONFIG_DIR = %s
 LOCAL_CONFIG_FILE = %s
 include : "%s"
 `, configDir, localFile, includeFile)
-	if err := os.WriteFile(rootConfig, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(rootConfig, []byte(content), 0600); err != nil {
 		t.Fatalf("Failed to create root config: %v", err)
 	}
 
@@ -585,10 +585,11 @@ include : "%s"
 // Helper function to open a file for testing
 func mustOpen(t *testing.T, path string) *os.File {
 	t.Helper()
+	//nolint:gosec // G304: Test helper for opening test files
 	f, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("Failed to open %s: %v", path, err)
 	}
-	t.Cleanup(func() { f.Close() })
+	t.Cleanup(func() { _ = f.Close() })
 	return f
 }

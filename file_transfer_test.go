@@ -19,7 +19,7 @@ func TestTransferCommandConstants(t *testing.T) {
 		{"EnableEncryption", CommandEnableEncryption, 2},
 		{"DisableEncryption", CommandDisableEncryption, 3},
 		{"XferX509", CommandXferX509, 4},
-		{"DownloadUrl", CommandDownloadUrl, 5},
+		{"DownloadURL", CommandDownloadURL, 5},
 		{"Mkdir", CommandMkdir, 6},
 		{"Other", CommandOther, 999},
 	}
@@ -71,6 +71,7 @@ func TestFileTransferItemMetadata(t *testing.T) {
 
 	if fileMode := metadataAd.EvaluateAttr("FileMode"); !fileMode.IsError() && fileMode.IsInteger() {
 		if num, err := fileMode.IntValue(); err == nil {
+			//nolint:gosec // G115: File mode is always in safe range (0-0777)
 			reconstructedItem.FileMode = uint32(num)
 		}
 	}
@@ -188,11 +189,10 @@ func TestFileTransferItemEmpty(t *testing.T) {
 
 	if fileMode := ad.EvaluateAttr("FileMode"); !fileMode.IsError() && fileMode.IsInteger() {
 		if num, err := fileMode.IntValue(); err == nil {
+			//nolint:gosec // G115: File mode is always in safe range (0-0777)
 			reconstructed.FileMode = uint32(num)
 		}
-	}
-
-	// Verify
+	} // Verify
 	if reconstructed.DestPath != item.DestPath {
 		t.Errorf("DestPath mismatch: got %q, want %q", reconstructed.DestPath, item.DestPath)
 	}

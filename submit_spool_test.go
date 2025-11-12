@@ -324,15 +324,16 @@ queue
 	goCopyToSpool := goAd.EvaluateAttr("CopyToSpool")
 	condorCopyToSpool := condorAd.EvaluateAttr("CopyToSpool")
 
-	if goCopyToSpool.IsUndefined() && condorCopyToSpool.IsUndefined() {
+	switch {
+	case goCopyToSpool.IsUndefined() && condorCopyToSpool.IsUndefined():
 		t.Log("Both implementations leave CopyToSpool undefined")
-	} else if goCopyToSpool.IsBool() && condorCopyToSpool.IsBool() {
+	case goCopyToSpool.IsBool() && condorCopyToSpool.IsBool():
 		goVal, _ := goCopyToSpool.BoolValue()
 		condorVal, _ := condorCopyToSpool.BoolValue()
 		if goVal != condorVal {
 			t.Errorf("CopyToSpool mismatch: Go=%v, Condor=%v", goVal, condorVal)
 		}
-	} else if !goCopyToSpool.IsUndefined() || !condorCopyToSpool.IsUndefined() {
+	case !goCopyToSpool.IsUndefined() || !condorCopyToSpool.IsUndefined():
 		t.Logf("CopyToSpool types differ: Go=%v, Condor=%v", goCopyToSpool, condorCopyToSpool)
 	}
 
@@ -392,15 +393,15 @@ func TestIntegrationCopyToSpoolWithInputFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	inputFile1 := filepath.Join(tmpDir, "input1.txt")
 	inputFile2 := filepath.Join(tmpDir, "input2.txt")
 
-	if err := os.WriteFile(inputFile1, []byte("test data 1"), 0644); err != nil {
+	if err := os.WriteFile(inputFile1, []byte("test data 1"), 0600); err != nil {
 		t.Fatalf("Failed to create input file: %v", err)
 	}
-	if err := os.WriteFile(inputFile2, []byte("test data 2"), 0644); err != nil {
+	if err := os.WriteFile(inputFile2, []byte("test data 2"), 0600); err != nil {
 		t.Fatalf("Failed to create input file: %v", err)
 	}
 
@@ -498,12 +499,13 @@ func TestCopyToSpoolWithExecutable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	execPath := filepath.Join(tmpDir, "test_script.sh")
 	execContent := "#!/bin/bash\necho 'Hello from spooled executable'\n"
 
-	if err := os.WriteFile(execPath, []byte(execContent), 0755); err != nil {
+	//nolint:gosec // G306: Script needs to be executable (0700)
+	if err := os.WriteFile(execPath, []byte(execContent), 0700); err != nil {
 		t.Fatalf("Failed to create executable: %v", err)
 	}
 
