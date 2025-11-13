@@ -345,12 +345,12 @@ func detectIPAddresses() (string, string, string) {
 
 			// Categorize by IP version
 			if ip.To4() != nil {
-				ipv4Addresses = append(ipv4Addresses, ipStr)
 				//nolint:staticcheck // SA4010: False positive - slice is sorted and used later
+				ipv4Addresses = append(ipv4Addresses, ipStr)
 				ipv4WithPrio = append(ipv4WithPrio, addressWithPriority{ipStr, priority})
 			} else if ip.To16() != nil {
-				ipv6Addresses = append(ipv6Addresses, ipStr)
 				//nolint:staticcheck // SA4010: False positive - slice is sorted and used later
+				ipv6Addresses = append(ipv6Addresses, ipStr)
 				ipv6WithPrio = append(ipv6WithPrio, addressWithPriority{ipStr, priority})
 			}
 		}
