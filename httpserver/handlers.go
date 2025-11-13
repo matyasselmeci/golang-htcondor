@@ -29,13 +29,17 @@ type JobListResponse struct {
 	Jobs []map[string]interface{} `json:"jobs"`
 }
 
-// handleJobs handles /api/v1/jobs endpoint (GET for list, POST for submit)
+// handleJobs handles /api/v1/jobs endpoint (GET for list, POST for submit, DELETE/PATCH for bulk operations)
 func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		s.handleListJobs(w, r)
 	case http.MethodPost:
 		s.handleSubmitJob(w, r)
+	case http.MethodDelete:
+		s.handleBulkDeleteJobs(w, r)
+	case http.MethodPatch:
+		s.handleBulkEditJobs(w, r)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
@@ -373,6 +377,178 @@ func (s *Server) handleEditJob(w http.ResponseWriter, r *http.Request, jobID str
 	}); err != nil {
 		log.Printf("Failed to encode response: %v", err)
 	}
+}
+
+// handleBulkDeleteJobs handles DELETE /api/v1/jobs with constraint-based bulk removal
+func (s *Server) handleBulkDeleteJobs(w http.ResponseWriter, r *http.Request) {
+	// Create authenticated context
+	ctx, err := s.createAuthenticatedContext(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("Authentication failed: %v", err))
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Constraint string `json:"constraint"`
+		Reason     string `json:"reason,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid request body: %v", err))
+		return
+	}
+
+	if req.Constraint == "" {
+		writeError(w, http.StatusBadRequest, "Constraint is required for bulk delete")
+		return
+	}
+
+	// Default reason if not provided
+	if req.Reason == "" {
+		req.Reason = "Removed via HTTP API bulk operation"
+	}
+
+	// Remove jobs by constraint
+	results, err := s.schedd.RemoveJobs(ctx, req.Constraint, req.Reason)
+	if err != nil {
+		// Check if it's an authentication error
+		if strings.Contains(err.Error(), "authentication") || strings.Contains(err.Error(), "security") {
+			writeError(w, http.StatusUnauthorized, fmt.Sprintf("Authentication failed: %v", err))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Bulk job removal failed: %v", err))
+		return
+	}
+
+	// Check results
+	if results.TotalJobs == 0 {
+		writeError(w, http.StatusNotFound, "No jobs matched the constraint")
+		return
+	}
+
+	// Return success with statistics
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message":    "Bulk job removal completed",
+		"constraint": req.Constraint,
+		"results": map[string]int{
+			"total":             results.TotalJobs,
+			"success":           results.Success,
+			"not_found":         results.NotFound,
+			"permission_denied": results.PermissionDenied,
+			"bad_status":        results.BadStatus,
+			"error":             results.Error,
+		},
+	})
+}
+
+// handleBulkEditJobs handles PATCH /api/v1/jobs with constraint-based bulk editing
+func (s *Server) handleBulkEditJobs(w http.ResponseWriter, r *http.Request) {
+	// Create authenticated context
+	ctx, err := s.createAuthenticatedContext(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, fmt.Sprintf("Authentication failed: %v", err))
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Constraint string                 `json:"constraint"`
+		Attributes map[string]interface{} `json:"attributes"`
+		Options    *struct {
+			AllowProtectedAttrs bool `json:"allow_protected_attrs,omitempty"`
+			Force               bool `json:"force,omitempty"`
+		} `json:"options,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid request body: %v", err))
+		return
+	}
+
+	if req.Constraint == "" {
+		writeError(w, http.StatusBadRequest, "Constraint is required for bulk edit")
+		return
+	}
+
+	if len(req.Attributes) == 0 {
+		writeError(w, http.StatusBadRequest, "No attributes to update")
+		return
+	}
+
+	// Convert interface{} values to strings for SetAttribute
+	attributes := make(map[string]string)
+	for key, value := range req.Attributes {
+		// Convert value to string representation
+		switch v := value.(type) {
+		case string:
+			// Quote string values for ClassAd
+			attributes[key] = fmt.Sprintf("%q", v)
+		case float64:
+			// JSON numbers are float64
+			if v == float64(int64(v)) {
+				// It's an integer
+				attributes[key] = fmt.Sprintf("%d", int64(v))
+			} else {
+				attributes[key] = fmt.Sprintf("%f", v)
+			}
+		case bool:
+			if v {
+				attributes[key] = "true"
+			} else {
+				attributes[key] = "false"
+			}
+		case nil:
+			// For null values, set to UNDEFINED
+			attributes[key] = "UNDEFINED"
+		default:
+			// For complex types, convert to JSON string
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot convert attribute %s to string: %v", key, err))
+				return
+			}
+			attributes[key] = string(jsonBytes)
+		}
+	}
+
+	// Set up options
+	opts := &htcondor.EditJobOptions{
+		AllowProtectedAttrs: false,
+		Force:               false,
+	}
+	if req.Options != nil {
+		opts.AllowProtectedAttrs = req.Options.AllowProtectedAttrs
+		opts.Force = req.Options.Force
+	}
+
+	// Edit jobs matching constraint
+	count, err := s.schedd.EditJobs(ctx, req.Constraint, attributes, opts)
+	if err != nil {
+		// Check if it's a validation error (immutable/protected attribute)
+		if strings.Contains(err.Error(), "immutable") || strings.Contains(err.Error(), "protected") {
+			writeError(w, http.StatusForbidden, fmt.Sprintf("Cannot edit jobs: %v", err))
+			return
+		}
+		// Check if it's a permission error
+		if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "EACCES") {
+			writeError(w, http.StatusForbidden, fmt.Sprintf("Permission denied: %v", err))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to edit jobs: %v", err))
+		return
+	}
+
+	if count == 0 {
+		writeError(w, http.StatusNotFound, "No jobs matched the constraint")
+		return
+	}
+
+	// Return success response
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":      "success",
+		"message":     fmt.Sprintf("Successfully edited %d job(s)", count),
+		"constraint":  req.Constraint,
+		"jobs_edited": count,
+	})
 }
 
 // handleJobInput handles PUT /api/v1/jobs/{id}/input
