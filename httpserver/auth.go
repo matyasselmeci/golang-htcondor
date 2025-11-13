@@ -44,7 +44,7 @@ func ConfigureSecurityForToken(token string) (*security.SecurityConfig, error) {
 		CryptoMethods:  []security.CryptoMethod{security.CryptoAES},
 		Encryption:     security.SecurityOptional,
 		Integrity:      security.SecurityOptional,
-		TokenFile:      token, // Direct token content (cedar accepts both file paths and content)
+		Token:          token,
 	}
 
 	return secConfig, nil
