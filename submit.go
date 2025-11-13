@@ -1,3 +1,6 @@
+// Package htcondor provides HTCondor job submission functionality.
+//
+//nolint:unparam // Many functions return error for interface consistency even when currently not failing
 package htcondor
 
 import (
@@ -619,8 +622,12 @@ func (sf *SubmitFile) setRequirements(ad *classad.ClassAd) error {
 
 	if len(reqParts) > 0 {
 		requirements := strings.Join(reqParts, " && ")
-		// Requirements is an expression, not a string
-		_ = ad.Set("Requirements", requirements)
+		// Requirements is an expression, not a string - parse it
+		reqExpr, err := classad.ParseExpr(requirements)
+		if err != nil {
+			return fmt.Errorf("failed to parse requirements expression: %w", err)
+		}
+		_ = ad.Set("Requirements", reqExpr)
 	}
 
 	return nil
@@ -951,6 +958,8 @@ func parseRemaps(remaps string) map[string]string {
 }
 
 // setGridParams sets grid universe specific parameters
+//
+//nolint:gocyclo // Complex function required for grid universe parameter handling
 func (sf *SubmitFile) setGridParams(ad *classad.ClassAd) error {
 	// grid_resource - Required for grid universe
 	if gridResource, ok := sf.cfg.Get("grid_resource"); ok {
@@ -1660,6 +1669,8 @@ func (sf *SubmitFile) setSimpleJobExprs(ad *classad.ClassAd) error {
 
 // setExtendedJobExprs sets extended job expression attributes
 // These are less common attributes that provide additional job control
+//
+//nolint:gocyclo // Complex function required for extended job expression handling
 func (sf *SubmitFile) setExtendedJobExprs(ad *classad.ClassAd) error {
 	// append_files - files to append instead of truncate
 	if appendFiles, ok := sf.cfg.Get("append_files"); ok {

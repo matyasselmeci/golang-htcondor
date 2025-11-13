@@ -49,13 +49,15 @@ queue
 	}
 }
 
-func TestScheddAct(t *testing.T) {
+func TestScheddRemoveJobs(t *testing.T) {
 	schedd := NewSchedd("test_schedd", "schedd.example.com", 9618)
 	ctx := context.Background()
 
-	err := schedd.Act(ctx, "remove", "ClusterId == 1")
+	// Test with invalid constraint (should fail to connect)
+	_, err := schedd.RemoveJobs(ctx, "ClusterId == 1", "test reason")
+	// Expect error because we're not connected to a real schedd
 	if err == nil {
-		t.Error("Expected error for unimplemented method")
+		t.Error("Expected error when not connected to schedd")
 	}
 }
 

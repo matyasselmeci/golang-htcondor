@@ -186,6 +186,25 @@ func (s *Schedd) doReceiveJobSandbox(ctx context.Context, constraint string, w i
 		}
 
 		// c-e. Receive files using FileTransfer protocol
+		// First receive the transfer protocol headers (final_transfer flag and xfer_info)
+		headerMsg := message.NewMessageFromStream(cedarStream)
+
+		// Read final_transfer flag
+		finalTransfer, err := headerMsg.GetInt32(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to receive final_transfer flag: %w", err)
+		}
+		_ = finalTransfer // 0 = intermediate, 1 = final
+
+		// Read xfer_info ClassAd
+		xferInfo, err := headerMsg.GetClassAd(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to receive xfer_info ClassAd: %w", err)
+		}
+		_ = xferInfo // Contains SandboxSize
+		// EOM after xfer_info (implicit)
+
+		// Now receive the files
 		if err := s.receiveJobFiles(ctx, cedarStream, tarWriter, dirPrefix, transferOutputFiles); err != nil {
 			return fmt.Errorf("failed to receive files for job %d.%d: %w", clusterID, procID, err)
 		}
@@ -206,7 +225,12 @@ func (s *Schedd) doReceiveJobSandbox(ctx context.Context, constraint string, w i
 }
 
 // receiveJobFiles receives files for a single job and writes them to the tar archive
+//
+//nolint:gocyclo // Complex function required for HTCondor file transfer protocol
 func (s *Schedd) receiveJobFiles(ctx context.Context, cedarStream *stream.Stream, tarWriter *tar.Writer, dirPrefix string, transferOutputFiles map[string]bool) error {
+	// Track whether we've received GO_AHEAD_ALWAYS from the peer
+	goAheadAlways := false
+
 	for {
 		// Read transfer command
 		msg := message.NewMessageFromStream(cedarStream)
@@ -225,45 +249,129 @@ func (s *Schedd) receiveJobFiles(ctx context.Context, cedarStream *stream.Stream
 			return nil
 
 		case CommandXferFile:
-			// Read filename
+			// Protocol for receiving a file:
+			// 1. Read filename (string) - no EOM yet
+			// 2. If PeerDoesGoAhead: EOM, then GoAhead exchange
+			// 3. Read file_mode (int32/int64) + EOM (from get_file_with_permissions)
+			// 4. Read file_size (int64) + buffer_size (int32) + file data
+
 			msg = message.NewMessageFromStream(cedarStream)
 			fileName, err := msg.GetString(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to receive filename: %w", err)
 			}
-			// EOM (implicit)
 
-			// Read file size
-			msg = message.NewMessageFromStream(cedarStream)
-			fileSize, err := msg.GetInt64(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to receive file size: %w", err)
+			// Modern HTCondor uses GoAhead protocol
+			// Perform bidirectional GoAhead handshake (only on first file if GO_AHEAD_ALWAYS is set)
+			if !goAheadAlways {
+				// Constants from file_transfer.cpp
+				const (
+					goAheadAlwaysValue = 2 // Peer will send all files without asking again
+				)
+
+				// 1. Receive server's alive_interval request
+				serverAliveMsg := message.NewMessageFromStream(cedarStream)
+				serverAliveInterval, err := serverAliveMsg.GetInt32(ctx)
+				if err != nil {
+					return fmt.Errorf("failed to receive server alive_interval: %w", err)
+				}
+				_ = serverAliveInterval // Acknowledge it
+				// EOM after alive_interval (implicit)
+
+				// 2. Send GoAhead response to server
+				clientGoAhead := classad.New()
+				_ = clientGoAhead.Set("Result", int64(goAheadAlwaysValue)) // We always go ahead
+				_ = clientGoAhead.Set("Timeout", int64(300))
+
+				goAheadMsg := message.NewMessageForStream(cedarStream)
+				if err := goAheadMsg.PutClassAd(ctx, clientGoAhead); err != nil {
+					return fmt.Errorf("failed to send client GoAhead: %w", err)
+				}
+				if err := goAheadMsg.FinishMessage(ctx); err != nil {
+					return fmt.Errorf("failed to finish client GoAhead message: %w", err)
+				}
+
+				// 3. Send our alive_interval request
+				aliveMsg := message.NewMessageForStream(cedarStream)
+				aliveInterval := int32(300) // 5 minutes
+				if err := aliveMsg.PutInt32(ctx, aliveInterval); err != nil {
+					return fmt.Errorf("failed to send alive_interval: %w", err)
+				}
+				if err := aliveMsg.FinishMessage(ctx); err != nil {
+					return fmt.Errorf("failed to finish alive_interval message: %w", err)
+				}
+
+				// 4. Receive server's GoAhead ClassAd
+				serverGoAheadMsg := message.NewMessageFromStream(cedarStream)
+				serverGoAheadAd, err := serverGoAheadMsg.GetClassAd(ctx)
+				if err != nil {
+					return fmt.Errorf("failed to receive GoAhead from server: %w", err)
+				}
+
+				// Check Result in GoAhead
+				resultExpr, ok := serverGoAheadAd.Lookup("Result")
+				if !ok {
+					return fmt.Errorf("GoAhead missing Result attribute")
+				}
+				resultVal := resultExpr.Eval(nil)
+				result, err := resultVal.IntValue()
+				if err != nil || result <= 0 {
+					return fmt.Errorf("GoAhead failed: Result=%v", result)
+				}
+
+				// Check if we got GO_AHEAD_ALWAYS - if so, no more handshakes needed
+				if result == goAheadAlwaysValue {
+					goAheadAlways = true
+					log.Printf("Received GO_AHEAD_ALWAYS - no more handshakes needed")
+				}
+				// EOM after GoAhead (implicit)
+
+				log.Printf("Completed GoAhead handshake for %s", fileName)
+			} else {
+				log.Printf("Skipping GoAhead handshake for %s (GO_AHEAD_ALWAYS set)", fileName)
 			}
-			// EOM (implicit)
 
-			// Read file permissions
+			// Read file permissions (from get_file_with_permissions)
 			msg = message.NewMessageFromStream(cedarStream)
 			fileMode, err := msg.GetInt64(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to receive file permissions: %w", err)
 			}
-			// EOM (implicit)
+			// EOM after permissions (implicit)
+
+			// Read file size and buffer size (from get_file/put_file protocol)
+			msg = message.NewMessageFromStream(cedarStream)
+			fileSize, err := msg.GetInt64(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to receive file size: %w", err)
+			}
+
+			// Read buffer size (for AES encrypted transfers)
+			bufferSize, err := msg.GetInt32(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to receive buffer size: %w", err)
+			}
+			_ = bufferSize // We know the buffer size but will read in chunks
+			// EOM after size/buffer (implicit)
 
 			// Check if this file should be transferred (if filter is set)
 			if transferOutputFiles != nil && !transferOutputFiles[fileName] {
 				// File not in the output files list, skip it by reading and discarding
 				discarded := int64(0)
-				buffer := make([]byte, 64*1024)
+				const maxChunkSize = 256 * 1024
 				for discarded < fileSize {
-					toRead := fileSize - discarded
-					if toRead > int64(len(buffer)) {
-						toRead = int64(len(buffer))
+					remaining := fileSize - discarded
+					chunkSize := remaining
+					if chunkSize > maxChunkSize {
+						chunkSize = maxChunkSize
 					}
-					n, err := cedarStream.ReadMessageBytes(ctx, buffer[:toRead])
+
+					chunkMsg := message.NewMessageFromStream(cedarStream)
+					_, err := chunkMsg.GetBytes(ctx, int(chunkSize))
 					if err != nil {
 						return fmt.Errorf("failed to discard file data: %w", err)
 					}
-					discarded += int64(n)
+					discarded += chunkSize
 				}
 				log.Printf("Skipped file %s (not in TransferOutputFiles)", fileName)
 				continue
@@ -276,17 +384,20 @@ func (s *Schedd) receiveJobFiles(ctx context.Context, cedarStream *stream.Stream
 				log.Printf("Ignoring file with path traversal: %s", fileName)
 				// Read and discard the file data
 				discarded := int64(0)
-				buffer := make([]byte, 64*1024)
+				const maxChunkSize = 256 * 1024
 				for discarded < fileSize {
-					toRead := fileSize - discarded
-					if toRead > int64(len(buffer)) {
-						toRead = int64(len(buffer))
+					remaining := fileSize - discarded
+					chunkSize := remaining
+					if chunkSize > maxChunkSize {
+						chunkSize = maxChunkSize
 					}
-					n, err := cedarStream.ReadMessageBytes(ctx, buffer[:toRead])
+
+					chunkMsg := message.NewMessageFromStream(cedarStream)
+					_, err := chunkMsg.GetBytes(ctx, int(chunkSize))
 					if err != nil {
 						return fmt.Errorf("failed to discard file data: %w", err)
 					}
-					discarded += int64(n)
+					discarded += chunkSize
 				}
 				continue
 			}
@@ -306,25 +417,31 @@ func (s *Schedd) receiveJobFiles(ctx context.Context, cedarStream *stream.Stream
 				return fmt.Errorf("failed to write tar header for %s: %w", tarPath, err)
 			}
 
-			// Stream file data directly to tar without buffering
+			// Stream file data directly to tar
+			// File data comes in chunks, each chunk is a separate CEDAR message
 			totalRead := int64(0)
-			buffer := make([]byte, 64*1024)
+			const maxChunkSize = 256 * 1024 // Match AES buffer size from sender
 			for totalRead < fileSize {
-				toRead := fileSize - totalRead
-				if toRead > int64(len(buffer)) {
-					toRead = int64(len(buffer))
+				// Calculate chunk size for this read
+				remaining := fileSize - totalRead
+				chunkSize := remaining
+				if chunkSize > maxChunkSize {
+					chunkSize = maxChunkSize
 				}
 
-				n, err := cedarStream.ReadMessageBytes(ctx, buffer[:toRead])
+				// Each chunk is a separate message
+				chunkMsg := message.NewMessageFromStream(cedarStream)
+				chunkData, err := chunkMsg.GetBytes(ctx, int(chunkSize))
 				if err != nil {
-					return fmt.Errorf("failed to read file data for %s: %w", fileName, err)
+					return fmt.Errorf("failed to read file data chunk for %s: %w", fileName, err)
 				}
+				// EOM after chunk (implicit)
 
-				if _, err := tarWriter.Write(buffer[:n]); err != nil {
+				if _, err := tarWriter.Write(chunkData); err != nil {
 					return fmt.Errorf("failed to write to tar for %s: %w", fileName, err)
 				}
 
-				totalRead += int64(n)
+				totalRead += int64(len(chunkData))
 			}
 
 			if totalRead != fileSize {

@@ -196,6 +196,8 @@ func (c *Config) evalREAL(args string) (string, error) {
 }
 
 // expandMacrosWithFunctions expands both regular and function macros
+//
+//nolint:gocyclo // Complex function required for HTCondor macro expansion
 func (c *Config) expandMacrosWithFunctions(value string) (string, error) {
 	result := value
 	maxDepth := 100
@@ -429,6 +431,8 @@ func (c *Config) evalEVAL(args string) (string, error) {
 }
 
 // evalRANDOM_CHOICE randomly selects one item from the provided list
+//
+//nolint:revive // Function name matches HTCondor's RANDOM_CHOICE macro
 func (c *Config) evalRANDOM_CHOICE(args string) (string, error) {
 	if args == "" {
 		return "", fmt.Errorf("RANDOM_CHOICE requires at least one argument")
@@ -499,6 +503,8 @@ func (c *Config) evalBASENAME(args string) (string, error) {
 }
 
 // evalFilenameFunc handles the $F[fpduwnxbqa] family of filename manipulation functions
+//
+//nolint:gocyclo // Complex function required for filename manipulation options
 func (c *Config) evalFilenameFunc(options string, args string) (string, error) {
 	filename := strings.TrimSpace(args)
 	if filename == "" {

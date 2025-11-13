@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/PelicanPlatform/classad/classad"
+	htcondor "github.com/bbockelm/golang-htcondor"
 )
 
 // JobSubmitRequest represents a job submission request
@@ -224,13 +225,51 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request, jobID s
 		return
 	}
 
-	// TODO: Implement job removal using schedd.Act() or similar API
-	// This requires implementing the job action API in the base library
-	_ = ctx
-	_ = cluster
-	_ = proc
+	// Build constraint for specific job
+	constraint := fmt.Sprintf("ClusterId == %d && ProcId == %d", cluster, proc)
 
-	writeError(w, http.StatusNotImplemented, "Job removal not yet implemented - requires schedd.Act() API")
+	// Remove the job using the schedd RemoveJobs method
+	results, err := s.schedd.RemoveJobs(ctx, constraint, "Removed via HTTP API")
+	if err != nil {
+		// Check if it's an authentication error
+		if strings.Contains(err.Error(), "authentication") || strings.Contains(err.Error(), "security") {
+			writeError(w, http.StatusUnauthorized, fmt.Sprintf("Authentication failed: %v", err))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Job removal failed: %v", err))
+		return
+	}
+
+	// Check if job was found and removed
+	if results.NotFound > 0 {
+		writeError(w, http.StatusNotFound, "Job not found")
+		return
+	}
+
+	if results.Success == 0 {
+		// Job exists but couldn't be removed (permission denied, bad status, etc.)
+		msg := "Failed to remove job"
+		switch {
+		case results.PermissionDenied > 0:
+			msg = "Permission denied to remove job"
+		case results.BadStatus > 0:
+			msg = "Job in wrong status for removal"
+		case results.Error > 0:
+			msg = "Error removing job"
+		}
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+
+	// Success
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Job removed successfully",
+		"job_id":  jobID,
+		"results": map[string]int{
+			"total":   results.TotalJobs,
+			"success": results.Success,
+		},
+	})
 }
 
 // handleEditJob handles PATCH /api/v1/jobs/{id}
@@ -256,14 +295,84 @@ func (s *Server) handleEditJob(w http.ResponseWriter, r *http.Request, jobID str
 		return
 	}
 
-	// TODO: Implement job editing using schedd QMGMT API
-	// This requires implementing the job edit API in the base library
-	_ = ctx
-	_ = cluster
-	_ = proc
-	_ = updates
+	if len(updates) == 0 {
+		writeError(w, http.StatusBadRequest, "No attributes to update")
+		return
+	}
 
-	writeError(w, http.StatusNotImplemented, "Job editing not yet implemented - requires QMGMT edit API")
+	// Convert interface{} values to strings for SetAttribute
+	attributes := make(map[string]string)
+	for key, value := range updates {
+		// Convert value to string representation
+		switch v := value.(type) {
+		case string:
+			// Quote string values for ClassAd
+			attributes[key] = fmt.Sprintf("%q", v)
+		case float64:
+			// JSON numbers are float64
+			if v == float64(int64(v)) {
+				// It's an integer
+				attributes[key] = fmt.Sprintf("%d", int64(v))
+			} else {
+				attributes[key] = fmt.Sprintf("%f", v)
+			}
+		case bool:
+			if v {
+				attributes[key] = "true"
+			} else {
+				attributes[key] = "false"
+			}
+		case nil:
+			// For null values, set to UNDEFINED
+			attributes[key] = "UNDEFINED"
+		default:
+			// For complex types, convert to JSON string
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot convert attribute %s to string: %v", key, err))
+				return
+			}
+			attributes[key] = string(jsonBytes)
+		}
+	}
+
+	// Edit the job attributes
+	opts := &htcondor.EditJobOptions{
+		// Don't allow protected attributes by default - user would need superuser privileges
+		AllowProtectedAttrs: false,
+		Force:               false,
+	}
+
+	if err := s.schedd.EditJob(ctx, cluster, proc, attributes, opts); err != nil {
+		// Check if it's a validation error (immutable/protected attribute)
+		if strings.Contains(err.Error(), "immutable") || strings.Contains(err.Error(), "protected") {
+			writeError(w, http.StatusForbidden, fmt.Sprintf("Cannot edit job: %v", err))
+			return
+		}
+		// Check if it's a permission error
+		if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "EACCES") {
+			writeError(w, http.StatusForbidden, fmt.Sprintf("Permission denied: %v", err))
+			return
+		}
+		// Check if job doesn't exist
+		if strings.Contains(err.Error(), "ENOENT") || strings.Contains(err.Error(), "nonexistent") {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("Job not found: %v", err))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to edit job: %v", err))
+		return
+	}
+
+	// Return success response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "success",
+		"message": fmt.Sprintf("Successfully edited job %s", jobID),
+		"job_id":  jobID,
+	}); err != nil {
+		log.Printf("Failed to encode response: %v", err)
+	}
 }
 
 // handleJobInput handles PUT /api/v1/jobs/{id}/input

@@ -51,7 +51,9 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	return s, nil
-} // Start starts the HTTP server
+}
+
+// Start starts the HTTP server
 func (s *Server) Start() error {
 	log.Printf("Starting HTCondor API server on %s", s.httpServer.Addr)
 	return s.httpServer.ListenAndServe()
@@ -74,11 +76,13 @@ type ErrorResponse struct {
 func writeError(w http.ResponseWriter, statusCode int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(ErrorResponse{
+	if err := json.NewEncoder(w).Encode(ErrorResponse{
 		Error:   http.StatusText(statusCode),
 		Message: message,
 		Code:    statusCode,
-	})
+	}); err != nil {
+		log.Printf("Failed to encode error response: %v", err)
+	}
 }
 
 // writeJSON writes a JSON response
@@ -149,13 +153,13 @@ func (s *Server) createAuthenticatedContext(r *http.Request) (context.Context, e
 
 	// Create context with token
 	ctx := WithToken(r.Context(), token)
-	
+
 	// Convert token to SecurityConfig and add to context
 	secConfig, err := GetSecurityConfigFromToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to configure security: %w", err)
 	}
 	ctx = htcondor.WithSecurityConfig(ctx, secConfig)
-	
+
 	return ctx, nil
 }

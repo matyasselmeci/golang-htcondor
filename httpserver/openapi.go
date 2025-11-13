@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 )
 
@@ -510,5 +511,7 @@ func (s *Server) handleOpenAPISchema(w http.ResponseWriter, r *http.Request) {
 
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
-	encoder.Encode(schema)
+	if err := encoder.Encode(schema); err != nil {
+		log.Printf("Failed to encode OpenAPI schema: %v", err)
+	}
 }

@@ -1,3 +1,4 @@
+// Package main provides an HTTP API server for HTCondor job management.
 package main
 
 import (
@@ -57,7 +58,9 @@ func runNormalMode() error {
 
 	scheddPort := 9618 // Default schedd port
 	if portStr, ok := cfg.Get("SCHEDD_PORT"); ok {
-		fmt.Sscanf(portStr, "%d", &scheddPort)
+		if _, err := fmt.Sscanf(portStr, "%d", &scheddPort); err != nil {
+			log.Printf("Warning: failed to parse SCHEDD_PORT '%s', using default %d: %v", portStr, scheddPort, err)
+		}
 	}
 
 	// Create and start server
@@ -104,7 +107,9 @@ func runDemoMode() error {
 	}
 	defer func() {
 		log.Printf("Cleaning up temporary directory: %s", tempDir)
-		os.RemoveAll(tempDir)
+		if err := os.RemoveAll(tempDir); err != nil {
+			log.Printf("Warning: failed to remove temp directory: %v", err)
+		}
 	}()
 
 	log.Printf("Using temporary directory: %s", tempDir)
@@ -117,7 +122,7 @@ func runDemoMode() error {
 
 	// Start condor_master
 	log.Println("Starting condor_master...")
-	condorMaster, err := startCondorMaster(configFile)
+	condorMaster, err := startCondorMaster(context.Background(), configFile)
 	if err != nil {
 		return fmt.Errorf("failed to start condor_master: %w", err)
 	}
@@ -244,18 +249,20 @@ MAX_DEFAULT_LOG = 10000000
 MAX_NUM_DEFAULT_LOG = 3
 `, localDir)
 
+	//nolint:gosec // Config file needs to be readable by condor daemons
 	return os.WriteFile(configFile, []byte(config), 0644)
 }
 
 // startCondorMaster starts the condor_master process
-func startCondorMaster(configFile string) (*exec.Cmd, error) {
+func startCondorMaster(ctx context.Context, configFile string) (*exec.Cmd, error) {
 	// Check if condor_master is in PATH
 	condorMasterPath, err := exec.LookPath("condor_master")
 	if err != nil {
 		return nil, fmt.Errorf("condor_master not found in PATH: %w", err)
 	}
 
-	cmd := exec.Command(condorMasterPath, "-f")
+	//nolint:gosec // condorMasterPath is validated via exec.LookPath
+	cmd := exec.CommandContext(ctx, condorMasterPath, "-f")
 	cmd.Env = append(os.Environ(),
 		"CONDOR_CONFIG="+configFile,
 		"_CONDOR_MASTER_LOG=$(LOCAL_DIR)/log/MasterLog",
@@ -280,7 +287,9 @@ func stopCondorMaster(cmd *exec.Cmd) {
 	log.Printf("Sending SIGTERM to condor_master (PID %d)", cmd.Process.Pid)
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		log.Printf("Failed to send SIGTERM: %v", err)
-		cmd.Process.Kill()
+		if killErr := cmd.Process.Kill(); killErr != nil {
+			log.Printf("Failed to kill process: %v", killErr)
+		}
 		return
 	}
 
@@ -293,7 +302,9 @@ func stopCondorMaster(cmd *exec.Cmd) {
 	select {
 	case <-time.After(10 * time.Second):
 		log.Println("condor_master did not stop gracefully, forcing kill")
-		cmd.Process.Kill()
+		if err := cmd.Process.Kill(); err != nil {
+			log.Printf("Failed to kill process: %v", err)
+		}
 		<-done
 	case err := <-done:
 		if err != nil {
@@ -307,6 +318,9 @@ func stopCondorMaster(cmd *exec.Cmd) {
 // waitForCondor waits for HTCondor to be ready
 func waitForCondor(localDir string) error {
 	maxWait := 30 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), maxWait)
+	defer cancel()
+
 	deadline := time.Now().Add(maxWait)
 
 	for time.Now().Before(deadline) {
@@ -314,7 +328,7 @@ func waitForCondor(localDir string) error {
 		scheddLog := filepath.Join(localDir, "log", "SchedLog")
 		if _, err := os.Stat(scheddLog); err == nil {
 			// Log exists, check if schedd is accepting connections
-			if isScheddReady() {
+			if isScheddReady(ctx) {
 				return nil
 			}
 		}
@@ -326,9 +340,9 @@ func waitForCondor(localDir string) error {
 }
 
 // isScheddReady checks if the schedd is accepting connections
-func isScheddReady() bool {
+func isScheddReady(ctx context.Context) bool {
 	// Try running condor_q to check if schedd is ready
-	cmd := exec.Command("condor_q", "-version")
+	cmd := exec.CommandContext(ctx, "condor_q", "-version")
 	if err := cmd.Run(); err != nil {
 		return false
 	}

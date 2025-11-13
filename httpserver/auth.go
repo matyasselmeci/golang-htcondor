@@ -1,3 +1,4 @@
+// Package httpserver provides HTTP API handlers for HTCondor operations.
 package httpserver
 
 import (
@@ -56,12 +57,14 @@ func GetSecurityConfigFromToken(ctx context.Context) (*security.SecurityConfig, 
 	if !ok || token == "" {
 		return nil, fmt.Errorf("no token in context")
 	}
-	
+
 	return ConfigureSecurityForToken(token)
 }
 
 // GetScheddWithToken creates a schedd connection configured with token authentication
 // This wraps the schedd to use token authentication from context
+//
+//nolint:revive // ctx parameter reserved for future use
 func GetScheddWithToken(ctx context.Context, schedd *htcondor.Schedd) (*htcondor.Schedd, error) {
 	// For now, we return the schedd as-is since the authentication is handled
 	// at the cedar level during connection establishment. In the future, we may
@@ -75,6 +78,7 @@ func GetScheddWithToken(ctx context.Context, schedd *htcondor.Schedd) (*htcondor
 // This is a simplified implementation for demo mode. In production, use condor_token_create.
 func GenerateToken(username, signingKeyPath string) (string, error) {
 	// Read signing key
+	//nolint:gosec // signingKeyPath is admin-configured, not user input
 	keyData, err := os.ReadFile(signingKeyPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read signing key: %w", err)

@@ -103,6 +103,10 @@ CONDOR_VIEW_HOST = $(COLLECTOR_HOST)
 SCHEDD_NAME = %s
 SCHEDD_INTERVAL = 5
 
+# Negotiator configuration - run frequently for testing
+NEGOTIATOR_INTERVAL = 2
+NEGOTIATOR_MIN_INTERVAL = 1
+
 # Startd configuration
 STARTD_NAME = test_startd@$(FULL_HOSTNAME)
 NUM_CPUS = 1

@@ -40,6 +40,8 @@ import (
 )
 
 // ConfigOptions contains configuration parameters for creating a Config
+//
+//nolint:revive // Name is consistent with HTCondor conventions
 type ConfigOptions struct {
 	// LocalName is the local name for this HTCondor instance (e.g., "manager", "worker")
 	// This affects variable prefix resolution
@@ -695,6 +697,8 @@ func detectWindowsVersion() string {
 }
 
 // expandMacros expands $(VAR) references in a value
+//
+//nolint:unused // Reserved for future use
 func (c *Config) expandMacros(value string) (string, error) {
 	result := value
 	maxDepth := 100
@@ -920,6 +924,8 @@ func (c *Config) parseReader(r io.Reader, filename string) error {
 }
 
 // parseLine parses a single configuration line
+//
+//nolint:unparam // Returns error for interface consistency with other parse functions
 func (c *Config) parseLine(line string) error {
 	// Trim whitespace
 	line = strings.TrimSpace(line)

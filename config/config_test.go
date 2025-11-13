@@ -537,6 +537,7 @@ func TestDETECTED_CPUS_LIMITWithEnvVars(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // Test function with many test cases
 func TestPriority2RuntimeMacros(t *testing.T) {
 	cfg, err := New()
 	if err != nil {

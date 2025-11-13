@@ -4,9 +4,12 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -603,4 +606,253 @@ queue
 			}
 		}
 	}
+}
+
+// TestReceiveJobSandboxIntegration tests downloading job output files
+// This verifies the complete workflow of:
+// 1. Submitting a trivial job that produces output
+// 2. Spooling input files
+// 3. Waiting for the job to complete
+// 4. Downloading the sandbox (output files) as a tar archive
+//
+//nolint:gocyclo // Integration test requires complex setup and verification logic
+func TestReceiveJobSandboxIntegration(t *testing.T) {
+	// Setup HTCondor test harness
+	harness := setupCondorHarness(t)
+
+	// Wait for daemons to start
+	if err := harness.waitForDaemons(); err != nil {
+		t.Fatalf("Daemons failed to start: %v", err)
+	}
+
+	// Get schedd connection info
+	scheddHost, scheddPort := getScheddAddress(t, harness)
+	t.Logf("Schedd discovered at: %s:%d", scheddHost, scheddPort)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Create schedd client
+	schedd := NewSchedd(harness.scheddName, scheddHost, scheddPort)
+
+	// Create a trivial job that produces output
+	// Create a submit file
+	submitFile := `
+universe = vanilla
+executable = /bin/sh
+arguments = job_script.sh
+transfer_executable = false
+transfer_input_files = input.txt,job_script.sh
+transfer_output_files = output.txt
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+request_cpus = 1
+request_memory = 128
+request_disk = 1024
+output = job.out
+error = job.err
+log = job.log
+queue
+`
+
+	// Submit the job remotely
+	t.Logf("Submitting job remotely...")
+	clusterID, procAds, err := schedd.SubmitRemote(ctx, submitFile)
+	if err != nil {
+		harness.printScheddLog()
+		t.Fatalf("Failed to submit job: %v", err)
+	}
+
+	t.Logf("Job submitted successfully: cluster=%d, num_procs=%d", clusterID, len(procAds))
+
+	// Create input files including a job script
+	testFS := fstest.MapFS{
+		"input.txt": &fstest.MapFile{
+			Data: []byte("This is input data\n"),
+			Mode: 0644,
+		},
+		"job_script.sh": &fstest.MapFile{
+			Data: []byte("#!/bin/sh\ncat input.txt > output.txt\necho 'Output from job' >> output.txt\necho 'Error message' >&2\n"),
+			Mode: 0755,
+		},
+	}
+
+	// Spool the input files
+	t.Logf("Spooling input files for job %d.0", clusterID)
+	spoolCtx, spoolCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer spoolCancel()
+
+	if err := schedd.SpoolJobFilesFromFS(spoolCtx, procAds, testFS); err != nil {
+		harness.printScheddLog()
+		t.Fatalf("Failed to spool files: %v", err)
+	}
+
+	t.Logf("Successfully spooled input files")
+
+	// Wait for job to complete (with timeout)
+	t.Logf("Waiting for job to complete (initial timeout: 15 seconds)...")
+	jobCompleted := false
+	startTime := time.Now()
+	maxWait := 15 * time.Second
+	var lastStatus int64 = -1 // Track last seen status to detect changes
+
+	for time.Since(startTime) < maxWait {
+		queryResult, err := schedd.Query(ctx, fmt.Sprintf("ClusterId == %d", clusterID), []string{"JobStatus"})
+		if err != nil {
+			t.Logf("Warning: Failed to query job status: %v", err)
+		} else if len(queryResult) > 0 {
+			jobAd := queryResult[0]
+			if statusExpr, ok := jobAd.Lookup("JobStatus"); ok {
+				statusVal := statusExpr.Eval(nil)
+				if statusInt, err := statusVal.IntValue(); err == nil {
+					t.Logf("Job status: %d (1=IDLE, 2=RUNNING, 4=COMPLETED, 5=HELD)", statusInt)
+
+					// If status changed, extend timeout by 10 seconds
+					if lastStatus != -1 && statusInt != lastStatus {
+						maxWait += 10 * time.Second
+						t.Logf("Job status changed from %d to %d - extending timeout by 10 seconds (new timeout: %v)",
+							lastStatus, statusInt, maxWait)
+					}
+					lastStatus = statusInt
+
+					if statusInt == 4 {
+						t.Logf("Job completed!")
+						jobCompleted = true
+						break
+					}
+				}
+			}
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	if !jobCompleted {
+		// Print schedd log for debugging
+		harness.printScheddLog()
+
+		// Query the job ad to see what attributes are set
+		t.Logf("Querying job ad for cluster %d...", clusterID)
+		queryResult, err := schedd.Query(ctx, fmt.Sprintf("ClusterId == %d", clusterID), []string{})
+		if err == nil && len(queryResult) > 0 {
+			jobAd := queryResult[0]
+			t.Logf("=== Job Ad for %d.0 ===", clusterID)
+			// Print key attributes
+			for _, attrName := range jobAd.GetAttributes() {
+				if value, ok := jobAd.Lookup(attrName); ok {
+					t.Logf("  %s = %v", attrName, value)
+				}
+			}
+			t.Logf("=== End Job Ad ===")
+		} else if err != nil {
+			t.Logf("Failed to query job ad: %v", err)
+		}
+
+		// Query collector to see what slots are available
+		if condorStatusPath, err := exec.LookPath("condor_status"); err == nil {
+			t.Logf("Querying collector for slot attributes...")
+			//nolint:gosec // Test code, condorStatusPath validated via LookPath
+			cmd := exec.CommandContext(context.Background(), condorStatusPath, "-long")
+			cmd.Env = append(os.Environ(),
+				"CONDOR_CONFIG="+harness.configFile,
+				"_CONDOR_LOCAL_DIR="+harness.tmpDir,
+			)
+			if output, err := cmd.CombinedOutput(); err == nil {
+				// Look for key attributes
+				t.Logf("=== condor_status -long output (first 2000 chars) ===\n%s\n=== End output ===", string(output[:minInt(2000, len(output))]))
+			}
+		}
+
+		// Try running condor_q -better-analyze for diagnostics
+		if condorQPath, err := exec.LookPath("condor_q"); err == nil {
+			t.Logf("Running condor_q -better-analyze for job %d.0...", clusterID)
+
+			// Set up environment for condor_q
+			//nolint:gosec // Test code, condorQPath validated via LookPath
+			cmd := exec.CommandContext(context.Background(), condorQPath, "-better-analyze", fmt.Sprintf("%d.0", clusterID))
+			cmd.Env = append(os.Environ(),
+				"CONDOR_CONFIG="+harness.configFile,
+				"_CONDOR_LOCAL_DIR="+harness.tmpDir,
+			)
+
+			if output, err := cmd.CombinedOutput(); err == nil {
+				t.Logf("=== condor_q -better-analyze output ===\n%s\n=== End output ===", string(output))
+			} else {
+				t.Logf("Failed to run condor_q -better-analyze: %v", err)
+			}
+		}
+
+		t.Fatalf("Job did not complete within %v", maxWait)
+	}
+
+	// Download the job sandbox
+	t.Logf("Downloading job sandbox...")
+	var sandboxBuf bytes.Buffer
+	constraint := fmt.Sprintf("ClusterId == %d", clusterID)
+
+	downloadCtx, downloadCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer downloadCancel()
+
+	errChan := schedd.ReceiveJobSandbox(downloadCtx, constraint, &sandboxBuf)
+
+	// Wait for download to complete
+	if err := <-errChan; err != nil {
+		harness.printScheddLog()
+		t.Fatalf("Failed to download job sandbox: %v", err)
+	}
+
+	t.Logf("Successfully downloaded job sandbox (%d bytes)", sandboxBuf.Len())
+
+	// Extract and verify the tar archive
+	t.Logf("Extracting and verifying sandbox contents...")
+	tarReader := tar.NewReader(&sandboxBuf)
+
+	filesFound := make(map[string]bool)
+	expectedFiles := []string{"output.txt", "job.out", "job.err"}
+
+	for {
+		header, err := tarReader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Failed to read tar entry: %v", err)
+		}
+
+		t.Logf("Found file in sandbox: %s (size: %d bytes)", header.Name, header.Size)
+		filesFound[filepath.Base(header.Name)] = true
+
+		// Read file content
+		content, err := io.ReadAll(tarReader)
+		if err != nil {
+			t.Fatalf("Failed to read file content: %v", err)
+		}
+
+		// Verify specific files
+		baseName := filepath.Base(header.Name)
+		switch baseName {
+		case "output.txt":
+			contentStr := string(content)
+			t.Logf("output.txt content: %q", contentStr)
+			if !strings.Contains(contentStr, "Output from job") {
+				t.Errorf("output.txt does not contain expected content")
+			}
+		case "job.out":
+			t.Logf("job.out content: %q", string(content))
+		case "job.err":
+			contentStr := string(content)
+			t.Logf("job.err content: %q", contentStr)
+			if !strings.Contains(contentStr, "Error message") {
+				t.Errorf("job.err does not contain expected error message")
+			}
+		}
+	}
+
+	// Verify we got the expected files
+	for _, expectedFile := range expectedFiles {
+		if !filesFound[expectedFile] {
+			t.Errorf("Expected file %s not found in sandbox", expectedFile)
+		}
+	}
+
+	t.Logf("Job sandbox download and verification complete")
 }
