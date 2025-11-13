@@ -1,37 +1,14 @@
-// Package htcondor provides HTCondor file transfer protocol implementation.
-//
-// This file implements the basic file transfer protocol for transferring files
-// between HTCondor clients and daemons (primarily schedd). The protocol is built
-// on top of the CEDAR communication layer and follows HTCondor's file transfer
-// command structure defined in condor_commands.h.
-//
-// The implementation supports:
-//   - Client-side file upload (client → schedd)
-//   - Client-side file download (schedd → client)
-//   - Basic file metadata (size, permissions, checksums)
-//
-// Deferred to future work:
-//   - File transfer plugins
-//   - Transfer queueing and throttling
-//   - Directory transfers
-//   - URL downloads
-//   - Checkpoint file handling
-//   - X.509 credential transfer
-//   - Dynamic encryption control
-//   - Advanced error handling and retry logic
-//
-// See FILE_TRANSFER_DESIGN.md for complete design documentation.
 package htcondor
 
 import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"time"
 
 	"github.com/PelicanPlatform/classad/classad"
+	"github.com/bbockelm/cedar/client"
 	"github.com/bbockelm/cedar/commands"
 	"github.com/bbockelm/cedar/message"
 	"github.com/bbockelm/cedar/security"
@@ -145,20 +122,20 @@ func (ftc *FileTransferClient) UploadFile(ctx context.Context, item FileTransfer
 	item.FileSize = stat.Size()
 	item.FileMode = uint32(stat.Mode().Perm())
 
-	// 2. Connect to schedd
-	dialer := &net.Dialer{Timeout: 30 * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", ftc.daemonAddr, ftc.daemonPort))
+	// 2. Connect to schedd using cedar client
+	addr := fmt.Sprintf("%s:%d", ftc.daemonAddr, ftc.daemonPort)
+	htcondorClient, err := client.ConnectToAddress(ctx, addr, 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to connect to schedd: %w", err)
 	}
 	defer func() {
-		if cerr := conn.Close(); cerr != nil && err == nil {
+		if cerr := htcondorClient.Close(); cerr != nil && err == nil {
 			err = fmt.Errorf("failed to close connection: %w", cerr)
 		}
 	}()
 
-	// 3. Create CEDAR stream
-	cedarStream := stream.NewStream(conn)
+	// 3. Get CEDAR stream from client
+	cedarStream := htcondorClient.GetStream()
 
 	// 4. Security handshake
 	secConfig := &security.SecurityConfig{
@@ -249,20 +226,20 @@ func (ftc *FileTransferClient) UploadFile(ctx context.Context, item FileTransfer
 //
 // TODO: Still missing Daemon.StartCommand() - currently must manually send command code.
 func (ftc *FileTransferClient) DownloadFile(ctx context.Context, remotePath string, localPath string) error {
-	// 1. Connect to schedd
-	dialer := &net.Dialer{Timeout: 30 * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", ftc.daemonAddr, ftc.daemonPort))
+	// 1. Connect to schedd using cedar client
+	addr := fmt.Sprintf("%s:%d", ftc.daemonAddr, ftc.daemonPort)
+	htcondorClient, err := client.ConnectToAddress(ctx, addr, 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to connect to schedd: %w", err)
 	}
 	defer func() {
-		if cerr := conn.Close(); cerr != nil && err == nil {
+		if cerr := htcondorClient.Close(); cerr != nil && err == nil {
 			err = fmt.Errorf("failed to close connection: %w", cerr)
 		}
 	}()
 
-	// 2. Create CEDAR stream
-	cedarStream := stream.NewStream(conn)
+	// 2. Get CEDAR stream from client
+	cedarStream := htcondorClient.GetStream()
 
 	// 3. Security handshake
 	secConfig := &security.SecurityConfig{

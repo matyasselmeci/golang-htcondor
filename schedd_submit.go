@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/PelicanPlatform/classad/classad"
+	"github.com/bbockelm/cedar/client"
 	"github.com/bbockelm/cedar/message"
 	"github.com/bbockelm/cedar/security"
 	"github.com/bbockelm/cedar/stream"
@@ -57,7 +58,7 @@ const (
 type QmgmtConnection struct {
 	scheddHost         string
 	scheddPort         int
-	conn               net.Conn
+	htcondorClient     *client.HTCondorClient
 	stream             *stream.Stream
 	authenticatedUser  string // User from authentication negotiation
 	inTransaction      bool
@@ -69,17 +70,16 @@ type QmgmtConnection struct {
 // NewQmgmtConnection establishes a queue management connection to the schedd
 // Uses FS authentication from cedar package
 func NewQmgmtConnection(ctx context.Context, scheddHost string, scheddPort int) (*QmgmtConnection, error) {
-	// Establish TCP connection to schedd
+	// Establish connection using cedar client
 	addr := net.JoinHostPort(scheddHost, fmt.Sprintf("%d", scheddPort))
 
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	htcondorClient, err := client.ConnectToAddress(ctx, addr, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to schedd at %s: %w", addr, err)
 	}
 
-	// Create CEDAR stream
-	cedarStream := stream.NewStream(conn)
+	// Get CEDAR stream from client
+	cedarStream := htcondorClient.GetStream()
 
 	// Check if SecurityConfig is provided in context, otherwise use default FS authentication
 	var secConfig *security.SecurityConfig
@@ -101,7 +101,7 @@ func NewQmgmtConnection(ctx context.Context, scheddHost string, scheddPort int) 
 	auth := security.NewAuthenticator(secConfig, cedarStream)
 	negotiation, err := auth.ClientHandshake(ctx)
 	if err != nil {
-		_ = conn.Close()
+		_ = htcondorClient.Close()
 		return nil, fmt.Errorf("authentication handshake failed: %w", err)
 	}
 
@@ -114,7 +114,7 @@ func NewQmgmtConnection(ctx context.Context, scheddHost string, scheddPort int) 
 		}
 	}
 	if !authMethodValid {
-		_ = conn.Close()
+		_ = htcondorClient.Close()
 		return nil, fmt.Errorf("authentication failed: expected one of %v, got %s", secConfig.AuthMethods, negotiation.NegotiatedAuth)
 	}
 
@@ -130,15 +130,15 @@ func NewQmgmtConnection(ctx context.Context, scheddHost string, scheddPort int) 
 	// Send CONDOR_GetCapabilities (10036) command
 	capMsg := message.NewMessageForStream(cedarStream)
 	if err := capMsg.PutInt(ctx, CONDOR_GetCapabilities); err != nil {
-		_ = conn.Close()
+		_ = htcondorClient.Close()
 		return nil, fmt.Errorf("failed to send GetCapabilities command: %w", err)
 	}
 	if err := capMsg.PutInt(ctx, 0); err != nil { // flags = 0
-		_ = conn.Close()
+		_ = htcondorClient.Close()
 		return nil, fmt.Errorf("failed to send GetCapabilities flags: %w", err)
 	}
 	if err := capMsg.FinishMessage(ctx); err != nil {
-		_ = conn.Close()
+		_ = htcondorClient.Close()
 		return nil, fmt.Errorf("failed to finish GetCapabilities message: %w", err)
 	}
 
@@ -147,7 +147,7 @@ func NewQmgmtConnection(ctx context.Context, scheddHost string, scheddPort int) 
 	capResponse := message.NewMessageFromStream(cedarStream)
 	capabilities, err := capResponse.GetClassAd(ctx)
 	if err != nil {
-		_ = conn.Close()
+		_ = htcondorClient.Close()
 		return nil, fmt.Errorf("failed to read capabilities ClassAd: %w", err)
 	}
 
@@ -157,7 +157,7 @@ func NewQmgmtConnection(ctx context.Context, scheddHost string, scheddPort int) 
 	q := &QmgmtConnection{
 		scheddHost:        scheddHost,
 		scheddPort:        scheddPort,
-		conn:              conn,
+		htcondorClient:    htcondorClient,
 		stream:            cedarStream,
 		authenticatedUser: negotiation.User, // Store authenticated user
 		inTransaction:     true,             // GetCapabilities implicitly starts a transaction
@@ -184,8 +184,8 @@ func (q *QmgmtConnection) Close() error {
 		}
 	}
 
-	if q.conn != nil {
-		return q.conn.Close()
+	if q.htcondorClient != nil {
+		return q.htcondorClient.Close()
 	}
 	return nil
 }

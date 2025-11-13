@@ -3,14 +3,14 @@ package htcondor
 import (
 	"context"
 	"fmt"
-	"net"
 	"strings"
+	"time"
 
 	"github.com/PelicanPlatform/classad/classad"
+	"github.com/bbockelm/cedar/client"
 	"github.com/bbockelm/cedar/commands"
 	"github.com/bbockelm/cedar/message"
 	"github.com/bbockelm/cedar/security"
-	"github.com/bbockelm/cedar/stream"
 )
 
 // JobAction represents an action to perform on jobs
@@ -135,19 +135,18 @@ func (s *Schedd) actOnJobs(
 		return nil, fmt.Errorf("must specify either constraint or ids")
 	}
 
-	// Connect to schedd
+	// Connect to schedd using cedar client
 	addr := fmt.Sprintf("%s:%d", s.address, s.port)
-	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	htcondorClient, err := client.ConnectToAddress(ctx, addr, 30*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to schedd: %w", err)
 	}
 	defer func() {
-		_ = conn.Close()
+		_ = htcondorClient.Close()
 	}()
 
-	// Create CEDAR stream
-	cedarStream := stream.NewStream(conn)
+	// Get CEDAR stream from client
+	cedarStream := htcondorClient.GetStream()
 
 	// Check if SecurityConfig is provided in context, otherwise use defaults
 	var secConfig *security.SecurityConfig

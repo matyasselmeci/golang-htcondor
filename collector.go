@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/PelicanPlatform/classad/classad"
+	"github.com/bbockelm/cedar/client"
 	"github.com/bbockelm/cedar/commands"
 	"github.com/bbockelm/cedar/message"
 	"github.com/bbockelm/cedar/security"
-	"github.com/bbockelm/cedar/stream"
 )
 
 // Collector represents an HTCondor collector daemon
@@ -30,21 +31,20 @@ func NewCollector(address string, port int) *Collector {
 // adType specifies the type of ads to query (e.g., "StartdAd", "ScheddAd")
 // constraint is a ClassAd constraint expression string (pass empty string for no constraint)
 func (c *Collector) QueryAds(ctx context.Context, adType string, constraint string) ([]*classad.ClassAd, error) {
-	// Establish TCP connection
+	// Establish connection using cedar client
 	addr := net.JoinHostPort(c.address, fmt.Sprintf("%d", c.port))
-	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	htcondorClient, err := client.ConnectToAddress(ctx, addr, 30*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to collector: %w", err)
 	}
 	defer func() {
-		if cerr := conn.Close(); cerr != nil && err == nil {
+		if cerr := htcondorClient.Close(); cerr != nil && err == nil {
 			err = fmt.Errorf("failed to close connection: %w", cerr)
 		}
 	}()
 
-	// Create CEDAR stream
-	cedarStream := stream.NewStream(conn)
+	// Get CEDAR stream from client
+	cedarStream := htcondorClient.GetStream()
 
 	// Determine the command based on ad type
 	cmd, err := getCommandForAdType(adType)

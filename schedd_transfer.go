@@ -8,13 +8,13 @@ import (
 	"io"
 	"io/fs"
 	"log"
-	"net"
 	"path"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/PelicanPlatform/classad/classad"
+	"github.com/bbockelm/cedar/client"
 	"github.com/bbockelm/cedar/commands"
 	"github.com/bbockelm/cedar/message"
 	"github.com/bbockelm/cedar/security"
@@ -66,21 +66,20 @@ func (s *Schedd) ReceiveJobSandbox(ctx context.Context, constraint string, w io.
 
 // doReceiveJobSandbox implements the actual transfer logic
 func (s *Schedd) doReceiveJobSandbox(ctx context.Context, constraint string, w io.Writer) error {
-	// 1. Connect to schedd
+	// 1. Connect to schedd using cedar client
 	addr := fmt.Sprintf("%s:%d", s.address, s.port)
-	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	htcondorClient, err := client.ConnectToAddress(ctx, addr, 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to connect to schedd at %s: %w", addr, err)
 	}
 	defer func() {
-		if cerr := conn.Close(); cerr != nil && err == nil {
+		if cerr := htcondorClient.Close(); cerr != nil && err == nil {
 			err = fmt.Errorf("failed to close connection: %w", cerr)
 		}
 	}()
 
-	// Create CEDAR stream
-	cedarStream := stream.NewStream(conn)
+	// Get CEDAR stream from client
+	cedarStream := htcondorClient.GetStream()
 
 	// 2. Perform DC_AUTHENTICATE handshake with TRANSFER_DATA_WITH_PERMS
 	// Check if SecurityConfig is provided in context, otherwise use defaults
@@ -566,21 +565,20 @@ func (s *Schedd) SpoolJobFilesFromFS(ctx context.Context, jobAds []*classad.Clas
 		}
 	}
 
-	// 1. Connect to schedd
+	// 1. Connect to schedd using cedar client
 	addr := fmt.Sprintf("%s:%d", s.address, s.port)
-	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	htcondorClient, err := client.ConnectToAddress(ctx, addr, 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to connect to schedd at %s: %w", addr, err)
 	}
 	defer func() {
-		if cerr := conn.Close(); cerr != nil && err == nil {
+		if cerr := htcondorClient.Close(); cerr != nil && err == nil {
 			err = fmt.Errorf("failed to close connection: %w", cerr)
 		}
 	}()
 
-	// Create CEDAR stream
-	cedarStream := stream.NewStream(conn)
+	// Get CEDAR stream from client
+	cedarStream := htcondorClient.GetStream()
 
 	// 2. Perform DC_AUTHENTICATE handshake with SPOOL_JOB_FILES_WITH_PERMS
 	secConfig := &security.SecurityConfig{
@@ -1021,21 +1019,20 @@ func (s *Schedd) SpoolJobFilesFromTar(ctx context.Context, jobAds []*classad.Cla
 		}
 	}
 
-	// 1. Connect to schedd
+	// 1. Connect to schedd using cedar client
 	addr := fmt.Sprintf("%s:%d", s.address, s.port)
-	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	htcondorClient, err := client.ConnectToAddress(ctx, addr, 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to connect to schedd at %s: %w", addr, err)
 	}
 	defer func() {
-		if cerr := conn.Close(); cerr != nil && err == nil {
+		if cerr := htcondorClient.Close(); cerr != nil && err == nil {
 			err = fmt.Errorf("failed to close connection: %w", cerr)
 		}
 	}()
 
-	// Create CEDAR stream
-	cedarStream := stream.NewStream(conn)
+	// Get CEDAR stream from client
+	cedarStream := htcondorClient.GetStream()
 
 	// 2. Perform DC_AUTHENTICATE handshake with SPOOL_JOB_FILES_WITH_PERMS
 	secConfig := &security.SecurityConfig{

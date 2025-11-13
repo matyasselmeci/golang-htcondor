@@ -27,10 +27,10 @@ import (
 	"time"
 
 	"github.com/PelicanPlatform/classad/classad"
+	"github.com/bbockelm/cedar/client"
 	"github.com/bbockelm/cedar/commands"
 	"github.com/bbockelm/cedar/message"
 	"github.com/bbockelm/cedar/security"
-	"github.com/bbockelm/cedar/stream"
 
 	htcondor "github.com/bbockelm/golang-htcondor"
 )
@@ -96,19 +96,19 @@ func uploadFileDemo(ctx context.Context, host string, port int, filePath string)
 
 	fmt.Printf("   SHA256: %s...\n", checksumStr[:16])
 
-	// Step 2: Connect to schedd
+	// Step 2: Connect to schedd using cedar client
 	fmt.Printf("\n🔌 Connecting to schedd...\n")
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	conn, err := net.DialTimeout("tcp", addr, 30*time.Second)
+	htcondorClient, err := client.ConnectToAddress(ctx, addr, 30*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to connect to schedd: %w", err)
 	}
-	defer conn.Close()
+	defer htcondorClient.Close()
 
 	fmt.Printf("   Connected!\n")
 
-	// Step 3: Create CEDAR stream
-	cedarStream := stream.NewStream(conn)
+	// Step 3: Get CEDAR stream from client
+	cedarStream := htcondorClient.GetStream()
 
 	// Step 4: Security handshake
 	fmt.Printf("\n🔐 Performing security handshake...\n")

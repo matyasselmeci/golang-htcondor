@@ -3,14 +3,14 @@ package htcondor
 import (
 	"context"
 	"fmt"
-	"net"
 	"strings"
+	"time"
 
 	"github.com/PelicanPlatform/classad/classad"
+	"github.com/bbockelm/cedar/client"
 	"github.com/bbockelm/cedar/commands"
 	"github.com/bbockelm/cedar/message"
 	"github.com/bbockelm/cedar/security"
-	"github.com/bbockelm/cedar/stream"
 )
 
 // securityConfigContextKey is the type for the security configuration context key
@@ -53,21 +53,20 @@ func (s *Schedd) Query(ctx context.Context, constraint string, projection []stri
 
 // queryWithAuth performs the actual query with optional authentication
 func (s *Schedd) queryWithAuth(ctx context.Context, constraint string, projection []string, useAuth bool) ([]*classad.ClassAd, error) {
-	// Establish TCP connection
+	// Establish connection using cedar client
 	addr := fmt.Sprintf("%s:%d", s.address, s.port)
-	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	htcondorClient, err := client.ConnectToAddress(ctx, addr, 30*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to schedd: %w", err)
 	}
 	defer func() {
-		if cerr := conn.Close(); cerr != nil && err == nil {
+		if cerr := htcondorClient.Close(); cerr != nil && err == nil {
 			err = fmt.Errorf("failed to close connection: %w", cerr)
 		}
 	}()
 
-	// Create CEDAR stream
-	cedarStream := stream.NewStream(conn)
+	// Get CEDAR stream from client
+	cedarStream := htcondorClient.GetStream()
 
 	// Determine command
 	cmd := commands.QUERY_JOB_ADS
