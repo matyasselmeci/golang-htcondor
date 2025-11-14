@@ -79,6 +79,10 @@ func (s *Schedd) queryWithAuth(ctx context.Context, constraint string, projectio
 		secConfig = ctxSecConfig
 		// Ensure command is set correctly
 		secConfig.Command = cmd
+		// Set PeerName to schedd address for session cache lookups
+		if secConfig.PeerName == "" {
+			secConfig.PeerName = s.address
+		}
 	} else {
 		// Use default security configuration
 		secConfig = &security.SecurityConfig{
@@ -88,6 +92,7 @@ func (s *Schedd) queryWithAuth(ctx context.Context, constraint string, projectio
 			CryptoMethods:  []security.CryptoMethod{security.CryptoAES},
 			Encryption:     security.SecurityOptional,
 			Integrity:      security.SecurityOptional,
+			PeerName:       s.address, // Set peer name for session cache lookups
 		}
 	}
 

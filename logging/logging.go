@@ -1,3 +1,10 @@
+// Package logging provides structured logging functionality for HTCondor applications.
+//
+// It wraps Go's standard log/slog package with additional features:
+//   - Destination-based filtering (HTTP, Schedd, Collector, etc.)
+//   - Verbosity levels (Error, Warn, Info, Debug)
+//   - Configuration from HTCondor config files
+//   - Support for both structured and printf-style logging
 package logging
 
 import (
@@ -13,16 +20,22 @@ import (
 // Verbosity levels for logging
 type Verbosity int
 
+// Verbosity levels for logging.
 const (
+	// VerbosityError logs only error messages
 	VerbosityError Verbosity = iota
+	// VerbosityWarn logs warnings and errors
 	VerbosityWarn
+	// VerbosityInfo logs informational messages, warnings, and errors
 	VerbosityInfo
+	// VerbosityDebug logs all messages including debug information
 	VerbosityDebug
 )
 
 // Destination represents where logs should be written
 type Destination int
 
+// Destination categories for log filtering.
 const (
 	DestinationGeneral   Destination = iota // General application logs
 	DestinationHTTP                         // HTTP server logs
@@ -67,7 +80,7 @@ func New(config *Config) (*Logger, error) {
 		writer = os.Stderr
 	default:
 		// File path
-		f, err := os.OpenFile(config.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0640)
+		f, err := os.OpenFile(config.OutputPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			return nil, err
 		}

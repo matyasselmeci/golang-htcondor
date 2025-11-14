@@ -3,7 +3,11 @@ package httpserver
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/bbockelm/cedar/security"
 	htcondor "github.com/bbockelm/golang-htcondor"
@@ -27,6 +31,12 @@ func GetTokenFromContext(ctx context.Context) (string, bool) {
 // ConfigureSecurityForToken configures security settings to use the provided token
 // This is a helper function to set up cedar's security configuration for TOKEN authentication
 func ConfigureSecurityForToken(token string) (*security.SecurityConfig, error) {
+	return ConfigureSecurityForTokenWithCache(token, nil)
+}
+
+// ConfigureSecurityForTokenWithCache configures security settings with an optional session cache
+// If sessionCache is nil, the global cache will be used
+func ConfigureSecurityForTokenWithCache(token string, sessionCache *security.SessionCache) (*security.SecurityConfig, error) {
 	if token == "" {
 		return nil, fmt.Errorf("empty token provided")
 	}
@@ -40,6 +50,7 @@ func ConfigureSecurityForToken(token string) (*security.SecurityConfig, error) {
 		Encryption:     security.SecurityOptional,
 		Integrity:      security.SecurityOptional,
 		Token:          token,
+		SessionCache:   sessionCache, // Use provided cache or nil for global
 	}
 
 	return secConfig, nil
@@ -67,4 +78,187 @@ func GetScheddWithToken(ctx context.Context, schedd *htcondor.Schedd) (*htcondor
 	//
 	// TODO: Extend htcondor.Schedd to accept SecurityConfig or token in Query/Submit methods
 	return schedd, nil
+}
+
+// TokenCacheEntry represents a cached token with its expiration and associated session cache
+type TokenCacheEntry struct {
+	Token         string
+	Expiration    time.Time
+	SessionCache  *security.SessionCache
+	expiryTimer   *time.Timer
+	cancelCleanup func()
+}
+
+// TokenCache manages validated tokens and their associated session caches
+type TokenCache struct {
+	mu      sync.RWMutex
+	entries map[string]*TokenCacheEntry // key is the token string
+}
+
+// NewTokenCache creates a new token cache
+func NewTokenCache() *TokenCache {
+	return &TokenCache{
+		entries: make(map[string]*TokenCacheEntry),
+	}
+}
+
+// parseJWTExpiration extracts the expiration time from a JWT token
+// Returns the expiration time or an error if parsing fails
+func parseJWTExpiration(token string) (time.Time, error) {
+	// JWT format: header.payload.signature
+	parts := []byte(token)
+	dotCount := 0
+	payloadStart := 0
+	payloadEnd := 0
+
+	for i, b := range parts {
+		if b == '.' {
+			dotCount++
+			if dotCount == 1 {
+				payloadStart = i + 1
+			} else if dotCount == 2 {
+				payloadEnd = i
+				break
+			}
+		}
+	}
+
+	if dotCount < 2 {
+		return time.Time{}, fmt.Errorf("invalid JWT format")
+	}
+
+	// Decode the payload (base64url)
+	payloadB64 := string(parts[payloadStart:payloadEnd])
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(payloadB64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to decode JWT payload: %w", err)
+	}
+
+	// Parse JSON to extract exp claim
+	var claims map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		return time.Time{}, fmt.Errorf("failed to parse JWT payload: %w", err)
+	}
+
+	// Extract expiration time
+	exp, ok := claims["exp"]
+	if !ok {
+		return time.Time{}, fmt.Errorf("JWT missing exp claim")
+	}
+
+	var expTime int64
+	switch v := exp.(type) {
+	case float64:
+		expTime = int64(v)
+	case int64:
+		expTime = v
+	case int:
+		expTime = int64(v)
+	default:
+		return time.Time{}, fmt.Errorf("JWT exp claim is not a valid timestamp")
+	}
+
+	return time.Unix(expTime, 0), nil
+}
+
+// Add adds a validated token to the cache with a session cache
+// If the token is already in the cache, returns the existing entry
+// Automatically schedules cleanup when the token expires
+func (tc *TokenCache) Add(token string) (*TokenCacheEntry, error) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	// Check if already cached
+	if entry, exists := tc.entries[token]; exists {
+		// Check if expired
+		if time.Now().After(entry.Expiration) {
+			// Remove expired entry
+			delete(tc.entries, token)
+		} else {
+			return entry, nil
+		}
+	}
+
+	// Parse token to get expiration
+	expiration, err := parseJWTExpiration(token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse token expiration: %w", err)
+	}
+
+	// Check if already expired
+	if time.Now().After(expiration) {
+		return nil, fmt.Errorf("token is already expired")
+	}
+
+	// Create a new session cache for this token
+	sessionCache := security.NewSessionCache()
+
+	// Create context for cleanup goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+
+	entry := &TokenCacheEntry{
+		Token:         token,
+		Expiration:    expiration,
+		SessionCache:  sessionCache,
+		cancelCleanup: cancel,
+	}
+
+	// Schedule automatic cleanup when token expires
+	duration := time.Until(expiration)
+	entry.expiryTimer = time.AfterFunc(duration, func() {
+		tc.Remove(token)
+	})
+
+	tc.entries[token] = entry
+	_ = ctx // Silence unused variable warning
+
+	return entry, nil
+}
+
+// Get retrieves a token cache entry if it exists and is not expired
+func (tc *TokenCache) Get(token string) (*TokenCacheEntry, bool) {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+
+	entry, exists := tc.entries[token]
+	if !exists {
+		return nil, false
+	}
+
+	// Check if expired
+	if time.Now().After(entry.Expiration) {
+		return nil, false
+	}
+
+	return entry, true
+}
+
+// Remove removes a token from the cache and cancels its cleanup timer
+func (tc *TokenCache) Remove(token string) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	entry, exists := tc.entries[token]
+	if !exists {
+		return
+	}
+
+	// Cancel the expiry timer
+	if entry.expiryTimer != nil {
+		entry.expiryTimer.Stop()
+	}
+
+	// Cancel the cleanup goroutine context
+	if entry.cancelCleanup != nil {
+		entry.cancelCleanup()
+	}
+
+	delete(tc.entries, token)
+}
+
+// Size returns the number of cached tokens
+func (tc *TokenCache) Size() int {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+	return len(tc.entries)
 }

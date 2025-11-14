@@ -1,5 +1,4 @@
 //go:build ignore
-// +build ignore
 
 package main
 
@@ -83,4 +82,3 @@ func main() {
 	fmt.Println("\nIn demo mode (--demo flag), these logs go to stdout.")
 	fmt.Println("In normal mode, configure with LOG=<path>, LOG_VERBOSITY=INFO, LOG_DESTINATIONS=HTTP")
 }
-

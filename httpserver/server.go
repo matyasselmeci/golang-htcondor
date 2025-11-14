@@ -28,6 +28,7 @@ type Server struct {
 	logger             *logging.Logger
 	metricsRegistry    *metricsd.Registry
 	prometheusExporter *metricsd.PrometheusExporter
+	tokenCache         *TokenCache // Cache of validated tokens and their session caches
 }
 
 // Config holds server configuration
@@ -91,6 +92,7 @@ func NewServer(cfg Config) (*Server, error) {
 		userHeader:     cfg.UserHeader,
 		signingKeyPath: cfg.SigningKeyPath,
 		logger:         logger,
+		tokenCache:     NewTokenCache(), // Initialize token cache
 	}
 
 	// Setup metrics if collector is provided
@@ -144,7 +146,7 @@ func NewServer(cfg Config) (*Server, error) {
 
 	s.httpServer = &http.Server{
 		Addr:         cfg.ListenAddr,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
 		IdleTimeout:  idleTimeout,
@@ -174,7 +176,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // responseWriter wraps http.ResponseWriter to capture status code and bytes written
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode   int
 	bytesWritten int
 }
 
@@ -360,8 +362,59 @@ func (s *Server) createAuthenticatedContext(r *http.Request) (context.Context, e
 	// Create context with token
 	ctx := WithToken(r.Context(), token)
 
-	// Convert token to SecurityConfig and add to context
-	secConfig, err := GetSecurityConfigFromToken(ctx)
+	// Determine which session cache to use based on authentication mode
+	var sessionCache *security.SessionCache
+
+	// Check if we're using user header mode (generated token)
+	if s.userHeader != "" {
+		// Try to extract bearer token to see if this is a real JWT
+		_, bearerErr := extractBearerToken(r)
+		if bearerErr != nil {
+			// No bearer token, so we generated one from user header
+			// In user header mode, tokens are regenerated per request (with new jti, iat)
+			// So we can't use token as cache key. Instead, use global cache which
+			// supports tagging by username in cedar's session cache implementation.
+			username := r.Header.Get(s.userHeader)
+			sessionCache = nil // nil means use global cache
+			s.logger.Debug(logging.DestinationSecurity, "Using global session cache for user header mode", "username", username)
+		} else {
+			// Real bearer token provided even though user header is configured
+			// Use per-token cache
+			entry, exists := s.tokenCache.Get(token)
+			if exists {
+				sessionCache = entry.SessionCache
+				s.logger.Debug(logging.DestinationSecurity, "Using cached session cache for bearer token")
+			} else {
+				entry, err := s.tokenCache.Add(token)
+				if err != nil {
+					return nil, fmt.Errorf("failed to cache token: %w", err)
+				}
+				sessionCache = entry.SessionCache
+				s.logger.Debug(logging.DestinationSecurity, "Created new session cache for bearer token", "expiration", entry.Expiration)
+			}
+		}
+	} else {
+		// Not using user header mode - this is a real JWT token
+		// Check if token is already in cache
+		entry, exists := s.tokenCache.Get(token)
+		if exists {
+			// Use the cached session cache
+			sessionCache = entry.SessionCache
+			s.logger.Debug(logging.DestinationSecurity, "Using cached session cache for token")
+		} else {
+			// First time seeing this token - attempt authentication
+			// Add to cache which will validate expiration and create session cache
+			entry, err := s.tokenCache.Add(token)
+			if err != nil {
+				return nil, fmt.Errorf("failed to cache token: %w", err)
+			}
+			sessionCache = entry.SessionCache
+			s.logger.Debug(logging.DestinationSecurity, "Created new session cache for token", "expiration", entry.Expiration)
+		}
+	}
+
+	// Convert token to SecurityConfig with the appropriate session cache
+	secConfig, err := ConfigureSecurityForTokenWithCache(token, sessionCache)
 	if err != nil {
 		return nil, fmt.Errorf("failed to configure security: %w", err)
 	}

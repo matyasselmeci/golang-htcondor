@@ -85,12 +85,17 @@ func NewQmgmtConnection(ctx context.Context, address string) (*QmgmtConnection, 
 		secConfig = ctxSecConfig
 		// Ensure command is set to QMGMT_WRITE_CMD
 		secConfig.Command = QMGMT_WRITE_CMD
+		// Set PeerName to schedd address for session cache lookups
+		if secConfig.PeerName == "" {
+			secConfig.PeerName = address
+		}
 	} else {
 		// Use default FS authentication
 		secConfig = &security.SecurityConfig{
 			AuthMethods:    []security.AuthMethod{security.AuthFS},
 			Authentication: security.SecurityRequired,
 			Command:        QMGMT_WRITE_CMD,
+			PeerName:       address, // Set peer name for session cache lookups
 		}
 	}
 
