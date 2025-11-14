@@ -49,13 +49,6 @@ func runNormalMode() error {
 	// Get schedd configuration
 	scheddName, _ := cfg.Get("SCHEDD_NAME")
 
-	scheddPort := 9618 // Default schedd port
-	if portStr, ok := cfg.Get("SCHEDD_PORT"); ok {
-		if _, err := fmt.Sscanf(portStr, "%d", &scheddPort); err != nil {
-			log.Printf("Warning: failed to parse SCHEDD_PORT '%s', using default %d: %v", portStr, scheddPort, err)
-		}
-	}
-
 	// Get HTTP API configuration
 	listenAddrFromConfig := *listenAddr
 	if addr, ok := cfg.Get("HTTP_API_LISTEN_ADDR"); ok && addr != "" {
@@ -181,6 +174,11 @@ func runDemoMode() error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
+	tempDir, err = filepath.Abs(tempDir)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
 	defer func() {
 		log.Printf("Cleaning up temporary directory: %s", tempDir)
 		if err := os.RemoveAll(tempDir); err != nil {
