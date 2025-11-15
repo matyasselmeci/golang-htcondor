@@ -80,21 +80,10 @@ func (s *Schedd) doReceiveJobSandbox(ctx context.Context, constraint string, w i
 	// Get CEDAR stream from client
 	cedarStream := htcondorClient.GetStream()
 
-	// 2. Perform DC_AUTHENTICATE handshake with TRANSFER_DATA_WITH_PERMS
-	// Check if SecurityConfig is provided in context, otherwise use defaults
-	var secConfig *security.SecurityConfig
-	if ctxSecConfig, ok := GetSecurityConfigFromContext(ctx); ok {
-		secConfig = ctxSecConfig
-		secConfig.Command = commands.TRANSFER_DATA_WITH_PERMS
-	} else {
-		secConfig = &security.SecurityConfig{
-			Command:        commands.TRANSFER_DATA_WITH_PERMS,
-			AuthMethods:    []security.AuthMethod{security.AuthSSL, security.AuthToken, security.AuthFS},
-			Authentication: security.SecurityOptional,
-			CryptoMethods:  []security.CryptoMethod{security.CryptoAES},
-			Encryption:     security.SecurityOptional,
-			Integrity:      security.SecurityOptional,
-		}
+	// Get SecurityConfig from context, HTCondor config, or defaults
+	secConfig, err := GetSecurityConfigOrDefault(ctx, nil, commands.TRANSFER_DATA_WITH_PERMS, "CLIENT", s.address)
+	if err != nil {
+		return fmt.Errorf("failed to create security config: %w", err)
 	}
 
 	auth := security.NewAuthenticator(secConfig, cedarStream)

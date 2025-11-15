@@ -1,12 +1,51 @@
 package htcondor
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/bbockelm/cedar/security"
 	"github.com/bbockelm/golang-htcondor/config"
 )
+
+// globalDefaultConfig holds a pointer to the default HTCondor configuration.
+// Access is thread-safe via atomic operations.
+// This is loaded lazily on first use or via explicit ReloadDefaultConfig() call.
+var globalDefaultConfig atomic.Pointer[config.Config]
+
+// loadDefaultConfig attempts to load the default HTCondor configuration.
+// Returns nil if loading fails (e.g., config files not found).
+func loadDefaultConfig() *config.Config {
+	cfg, err := config.New()
+	if err != nil {
+		return nil
+	}
+	return cfg
+}
+
+// getDefaultConfig returns the global default configuration, loading it lazily if needed.
+// Returns nil if no default configuration is available.
+func getDefaultConfig() *config.Config {
+	cfg := globalDefaultConfig.Load()
+	if cfg == nil {
+		// Attempt lazy load
+		cfg = loadDefaultConfig()
+		if cfg != nil {
+			globalDefaultConfig.Store(cfg)
+		}
+	}
+	return cfg
+}
+
+// ReloadDefaultConfig reloads the global default HTCondor configuration.
+// This is useful when configuration files change and need to be re-read.
+// If loading fails, the global config is set to nil.
+func ReloadDefaultConfig() {
+	cfg := loadDefaultConfig()
+	globalDefaultConfig.Store(cfg)
+}
 
 // GetSecurityConfig creates a SecurityConfig from HTCondor configuration.
 // It reads security-related parameters like SEC_CLIENT_AUTHENTICATION, SEC_DEFAULT_AUTHENTICATION,
@@ -240,4 +279,67 @@ func mapCryptoMethods(methods string) []security.CryptoMethod {
 	}
 
 	return result
+}
+
+// GetSecurityConfigOrDefault retrieves SecurityConfig from context if available,
+// otherwise attempts to load from HTCondor configuration, and falls back to defaults.
+//
+// This function provides consistent SecurityConfig creation across the module:
+//  1. Check context for existing SecurityConfig
+//  2. If not in context, use provided config or fall back to global default config
+//  3. If config available, load from HTCondor configuration
+//  4. Fall back to sensible defaults if config is not available
+//
+// Parameters:
+//   - ctx: Context that may contain SecurityConfig
+//   - cfg: HTCondor configuration (can be nil, will use global default if available)
+//   - command: The command code for the operation
+//   - context: Security context ("CLIENT", "READ", "WRITE", etc.)
+//   - peerName: Peer name for session cache (e.g., schedd address)
+//
+// Returns:
+//   - *security.SecurityConfig: Cedar security configuration
+//   - error: Any configuration error encountered
+func GetSecurityConfigOrDefault(ctx context.Context, cfg *config.Config, command int, secContext string, peerName string) (*security.SecurityConfig, error) {
+	// 1. Check if SecurityConfig is provided in context
+	if ctxSecConfig, ok := GetSecurityConfigFromContext(ctx); ok {
+		// Make a copy to avoid modifying the original
+		secConfig := &ctxSecConfig
+		// Update command for the specific operation
+		secConfig.Command = command
+		// Set PeerName for session cache lookups if not already set
+		if secConfig.PeerName == "" {
+			secConfig.PeerName = peerName
+		}
+		return secConfig, nil
+	}
+
+	// 2. Try to load from HTCondor configuration if available
+	// If cfg is nil, try the global default config
+	if cfg == nil {
+		cfg = getDefaultConfig()
+	}
+
+	if cfg != nil {
+		secConfig, err := GetSecurityConfig(cfg, command, secContext)
+		if err != nil {
+			return nil, err
+		}
+		// Set PeerName for session cache lookups
+		if secConfig.PeerName == "" {
+			secConfig.PeerName = peerName
+		}
+		return secConfig, nil
+	}
+
+	// 3. Fall back to sensible defaults
+	return &security.SecurityConfig{
+		Command:        command,
+		AuthMethods:    []security.AuthMethod{security.AuthSSL, security.AuthToken, security.AuthFS},
+		Authentication: security.SecurityOptional,
+		CryptoMethods:  []security.CryptoMethod{security.CryptoAES},
+		Encryption:     security.SecurityOptional,
+		Integrity:      security.SecurityOptional,
+		PeerName:       peerName,
+	}, nil
 }

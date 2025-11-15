@@ -48,16 +48,13 @@ func (c *Collector) QueryAds(ctx context.Context, adType string, constraint stri
 		return nil, err
 	}
 
-	// Perform security handshake
-	secConfig := &security.SecurityConfig{
-		Command:        int(cmd),
-		AuthMethods:    []security.AuthMethod{security.AuthSSL, security.AuthToken},
-		Authentication: security.SecurityOptional,
-		CryptoMethods:  []security.CryptoMethod{security.CryptoAES},
-		Encryption:     security.SecurityOptional,
-		Integrity:      security.SecurityOptional,
+	// Get SecurityConfig from context, HTCondor config, or defaults
+	secConfig, err := GetSecurityConfigOrDefault(ctx, nil, int(cmd), "CLIENT", c.address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create security config: %w", err)
 	}
 
+	// Perform security handshake
 	auth := security.NewAuthenticator(secConfig, cedarStream)
 	_, err = auth.ClientHandshake(ctx)
 	if err != nil {

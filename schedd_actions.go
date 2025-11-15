@@ -147,20 +147,10 @@ func (s *Schedd) actOnJobs(
 	// Get CEDAR stream from client
 	cedarStream := htcondorClient.GetStream()
 
-	// Check if SecurityConfig is provided in context, otherwise use defaults
-	var secConfig *security.SecurityConfig
-	if ctxSecConfig, ok := GetSecurityConfigFromContext(ctx); ok {
-		secConfig = ctxSecConfig
-		secConfig.Command = commands.ACT_ON_JOBS
-	} else {
-		secConfig = &security.SecurityConfig{
-			Command:        commands.ACT_ON_JOBS,
-			AuthMethods:    []security.AuthMethod{security.AuthSSL, security.AuthToken, security.AuthFS},
-			Authentication: security.SecurityRequired,
-			CryptoMethods:  []security.CryptoMethod{security.CryptoAES},
-			Encryption:     security.SecurityOptional,
-			Integrity:      security.SecurityOptional,
-		}
+	// Get SecurityConfig from context, HTCondor config, or defaults
+	secConfig, err := GetSecurityConfigOrDefault(ctx, nil, commands.ACT_ON_JOBS, "CLIENT", s.address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create security config: %w", err)
 	}
 
 	// Perform security handshake

@@ -23,9 +23,12 @@ func WithSecurityConfig(ctx context.Context, secConfig *security.SecurityConfig)
 }
 
 // GetSecurityConfigFromContext retrieves the security configuration from the context
-func GetSecurityConfigFromContext(ctx context.Context) (*security.SecurityConfig, bool) {
+func GetSecurityConfigFromContext(ctx context.Context) (security.SecurityConfig, bool) {
 	secConfig, ok := ctx.Value(securityConfigContextKey{}).(*security.SecurityConfig)
-	return secConfig, ok
+	if !ok || secConfig == nil {
+		return security.SecurityConfig{}, false
+	}
+	return *secConfig, true
 }
 
 // Schedd represents an HTCondor schedd daemon
@@ -72,28 +75,10 @@ func (s *Schedd) queryWithAuth(ctx context.Context, constraint string, projectio
 		cmd = commands.QUERY_JOB_ADS_WITH_AUTH
 	}
 
-	// Check if SecurityConfig is provided in context, otherwise use defaults
-	var secConfig *security.SecurityConfig
-	if ctxSecConfig, ok := GetSecurityConfigFromContext(ctx); ok {
-		// Use security config from context
-		secConfig = ctxSecConfig
-		// Ensure command is set correctly
-		secConfig.Command = cmd
-		// Set PeerName to schedd address for session cache lookups
-		if secConfig.PeerName == "" {
-			secConfig.PeerName = s.address
-		}
-	} else {
-		// Use default security configuration
-		secConfig = &security.SecurityConfig{
-			Command:        cmd,
-			AuthMethods:    []security.AuthMethod{security.AuthSSL, security.AuthToken},
-			Authentication: security.SecurityOptional,
-			CryptoMethods:  []security.CryptoMethod{security.CryptoAES},
-			Encryption:     security.SecurityOptional,
-			Integrity:      security.SecurityOptional,
-			PeerName:       s.address, // Set peer name for session cache lookups
-		}
+	// Get SecurityConfig from context, HTCondor config, or defaults
+	secConfig, err := GetSecurityConfigOrDefault(ctx, nil, cmd, "CLIENT", s.address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create security config: %w", err)
 	}
 
 	auth := security.NewAuthenticator(secConfig, cedarStream)

@@ -78,25 +78,10 @@ func NewQmgmtConnection(ctx context.Context, address string) (*QmgmtConnection, 
 	// Get CEDAR stream from client
 	cedarStream := htcondorClient.GetStream()
 
-	// Check if SecurityConfig is provided in context, otherwise use default FS authentication
-	var secConfig *security.SecurityConfig
-	if ctxSecConfig, ok := GetSecurityConfigFromContext(ctx); ok {
-		// Use security config from context (e.g., TOKEN authentication from HTTP API)
-		secConfig = ctxSecConfig
-		// Ensure command is set to QMGMT_WRITE_CMD
-		secConfig.Command = QMGMT_WRITE_CMD
-		// Set PeerName to schedd address for session cache lookups
-		if secConfig.PeerName == "" {
-			secConfig.PeerName = address
-		}
-	} else {
-		// Use default FS authentication
-		secConfig = &security.SecurityConfig{
-			AuthMethods:    []security.AuthMethod{security.AuthFS},
-			Authentication: security.SecurityRequired,
-			Command:        QMGMT_WRITE_CMD,
-			PeerName:       address, // Set peer name for session cache lookups
-		}
+	// Get SecurityConfig from context, HTCondor config, or defaults
+	secConfig, err := GetSecurityConfigOrDefault(ctx, nil, QMGMT_WRITE_CMD, "CLIENT", address)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create security config: %w", err)
 	}
 
 	// Perform DC_AUTHENTICATE handshake
