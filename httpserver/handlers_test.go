@@ -50,4 +50,3 @@ func TestCollectorAdsResponse(t *testing.T) {
 		t.Error("Expected nil ads in empty response")
 	}
 }
-
