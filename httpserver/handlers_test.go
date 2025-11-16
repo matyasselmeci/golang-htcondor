@@ -1,6 +1,9 @@
 package httpserver
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -48,5 +51,105 @@ func TestCollectorAdsResponse(t *testing.T) {
 
 	if response.Ads != nil {
 		t.Error("Expected nil ads in empty response")
+	}
+}
+
+// TestHealthzEndpoint verifies the /healthz endpoint returns OK
+func TestHealthzEndpoint(t *testing.T) {
+	// Create a minimal server instance
+	s := &Server{}
+
+	tests := []struct {
+		name           string
+		method         string
+		wantStatusCode int
+		wantStatus     string
+	}{
+		{
+			name:           "GET /healthz returns OK",
+			method:         http.MethodGet,
+			wantStatusCode: http.StatusOK,
+			wantStatus:     "ok",
+		},
+		{
+			name:           "POST /healthz returns Method Not Allowed",
+			method:         http.MethodPost,
+			wantStatusCode: http.StatusMethodNotAllowed,
+			wantStatus:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, "/healthz", nil)
+			w := httptest.NewRecorder()
+
+			s.handleHealthz(w, req)
+
+			resp := w.Result()
+			if resp.StatusCode != tt.wantStatusCode {
+				t.Errorf("handleHealthz() status = %v, want %v", resp.StatusCode, tt.wantStatusCode)
+			}
+
+			if tt.wantStatus != "" {
+				var response map[string]string
+				if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+					t.Fatalf("Failed to decode response: %v", err)
+				}
+				if response["status"] != tt.wantStatus {
+					t.Errorf("handleHealthz() response status = %v, want %v", response["status"], tt.wantStatus)
+				}
+			}
+		})
+	}
+}
+
+// TestReadyzEndpoint verifies the /readyz endpoint returns ready status
+func TestReadyzEndpoint(t *testing.T) {
+	// Create a minimal server instance
+	s := &Server{}
+
+	tests := []struct {
+		name           string
+		method         string
+		wantStatusCode int
+		wantStatus     string
+	}{
+		{
+			name:           "GET /readyz returns ready",
+			method:         http.MethodGet,
+			wantStatusCode: http.StatusOK,
+			wantStatus:     "ready",
+		},
+		{
+			name:           "POST /readyz returns Method Not Allowed",
+			method:         http.MethodPost,
+			wantStatusCode: http.StatusMethodNotAllowed,
+			wantStatus:     "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, "/readyz", nil)
+			w := httptest.NewRecorder()
+
+			s.handleReadyz(w, req)
+
+			resp := w.Result()
+			if resp.StatusCode != tt.wantStatusCode {
+				t.Errorf("handleReadyz() status = %v, want %v", resp.StatusCode, tt.wantStatusCode)
+			}
+
+			if tt.wantStatus != "" {
+				var response map[string]string
+				if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+					t.Fatalf("Failed to decode response: %v", err)
+				}
+				if response["status"] != tt.wantStatus {
+					t.Errorf("handleReadyz() response status = %v, want %v", response["status"], tt.wantStatus)
+				}
+			}
+		})
 	}
 }
