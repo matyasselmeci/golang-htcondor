@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -908,6 +909,16 @@ func removeJob(t *testing.T, client *http.Client, baseURL, user, jobID string) {
 	client.Do(req)
 }
 
+// findAvailablePort finds an available port for testing
+func findAvailablePort(t *testing.T) int {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to find available port: %v", err)
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port
+}
+
 // TestHTTPAPIRateLimiting tests that rate limiting works correctly with HTTP API
 func TestHTTPAPIRateLimiting(t *testing.T) {
 	// Skip if condor_master is not available
@@ -924,9 +935,15 @@ func TestHTTPAPIRateLimiting(t *testing.T) {
 
 	t.Logf("Using temporary directory: %s", tempDir)
 
+	// Allocate random ports for collector and schedd
+	collectorPort := findAvailablePort(t)
+	scheddPort := findAvailablePort(t)
+	httpServerPort := findAvailablePort(t)
+	t.Logf("Using collector port: %d, schedd port: %d, HTTP server port: %d", collectorPort, scheddPort, httpServerPort)
+
 	// Write mini condor configuration with rate limiting
 	configFile := filepath.Join(tempDir, "condor_config")
-	if err := writeMiniCondorConfigWithRateLimit(configFile, tempDir); err != nil {
+	if err := writeMiniCondorConfigWithRateLimit(configFile, tempDir, collectorPort, scheddPort); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
 
@@ -962,21 +979,49 @@ func TestHTTPAPIRateLimiting(t *testing.T) {
 		t.Fatalf("Failed to write signing key: %v", err)
 	}
 
-	// Start HTTP server
-	serverPort := 18081
-	serverAddr := fmt.Sprintf("127.0.0.1:%d", serverPort)
-	server, err := startHTTPServerForTesting(tempDir, serverAddr, signingKeyPath, "test.domain")
+	// Start HTTP server with random port
+	serverAddr := fmt.Sprintf("127.0.0.1:%d", httpServerPort)
+	baseURL := fmt.Sprintf("http://%s", serverAddr)
+	
+	// Create server (Note: schedd address will be discovered from collector)
+	collectorAddr := fmt.Sprintf("127.0.0.1:%d", collectorPort)
+	collector := htcondor.NewCollector(collectorAddr)
+	server, err := NewServer(Config{
+		ListenAddr:     serverAddr,
+		ScheddName:     "local",
+		UserHeader:     "X-Test-User",
+		SigningKeyPath: signingKeyPath,
+		TrustDomain:    "test.domain",
+		Collector:      collector,
+	})
 	if err != nil {
-		t.Fatalf("Failed to start HTTP server: %v", err)
+		t.Fatalf("Failed to create server: %v", err)
 	}
-	defer server.Stop()
+	
+	// Start server in background
+	serverErrChan := make(chan error, 1)
+	go func() {
+		serverErrChan <- server.Start()
+	}()
+	
+	// Ensure server is stopped at the end
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			t.Logf("Warning: server shutdown error: %v", err)
+		}
+	}()
 
 	// Wait for server to be ready
-	time.Sleep(500 * time.Millisecond)
+	t.Logf("Waiting for server to start on %s", baseURL)
+	if err := waitForServer(baseURL, 10*time.Second); err != nil {
+		t.Fatalf("Server failed to start: %v", err)
+	}
+	t.Logf("Server is ready on %s", baseURL)
 
 	// Test rate limiting
 	client := &http.Client{Timeout: 10 * time.Second}
-	baseURL := fmt.Sprintf("http://%s", serverAddr)
 	user := "testuser"
 
 	// Test 1: Make rapid queries to exceed rate limit
@@ -1062,7 +1107,7 @@ func TestHTTPAPIRateLimiting(t *testing.T) {
 }
 
 // writeMiniCondorConfigWithRateLimit writes a mini condor configuration with rate limiting enabled
-func writeMiniCondorConfigWithRateLimit(configFile, baseDir string) error {
+func writeMiniCondorConfigWithRateLimit(configFile, baseDir string, collectorPort, scheddPort int) error {
 	masterPath, err := exec.LookPath("condor_master")
 	if err != nil {
 		return err
@@ -1089,15 +1134,33 @@ STARTD = %s/condor_startd
 NEGOTIATOR = %s/condor_negotiator
 
 # Network settings
-COLLECTOR_HOST = 127.0.0.1:9619
-COLLECTOR_ARGS = -p 9619
-SCHEDD_ARGS = -p 9617
+COLLECTOR_HOST = 127.0.0.1:%d
+COLLECTOR_ARGS = -p %d
+SCHEDD_ARGS = -p %d
 
 # Rate limiting configuration (very low limits for testing)
 SCHEDD_QUERY_RATE_LIMIT = 2
 SCHEDD_QUERY_PER_USER_RATE_LIMIT = 1
 COLLECTOR_QUERY_RATE_LIMIT = 4
 COLLECTOR_QUERY_PER_USER_RATE_LIMIT = 2
+
+# Minimal machine resources for testing
+NUM_CPUS = 1
+MEMORY = 1024
+
+# Security
+ALLOW_ADMINISTRATOR = *
+ALLOW_WRITE = *
+ALLOW_READ = *
+SEC_DEFAULT_AUTHENTICATION = OPTIONAL
+SEC_DEFAULT_AUTHENTICATION_METHODS = FS, IDTOKENS
+
+# Logging
+MAX_COLLECTOR_LOG = 10000000
+MAX_SCHEDD_LOG = 10000000
+MAX_STARTD_LOG = 10000000
+MAX_MASTER_LOG = 10000000
+MAX_NEGOTIATOR_LOG = 10000000
 
 # Minimal machine resources for testing
 NUM_CPUS = 1
@@ -1126,7 +1189,8 @@ UPDATE_INTERVAL = 5
 ENABLE_SOAP = False
 ENABLE_WEB_SERVER = False
 `, baseDir, baseDir, baseDir, baseDir, baseDir, baseDir,
-		sbinDir, sbinDir, sbinDir, sbinDir, sbinDir)
+		sbinDir, sbinDir, sbinDir, sbinDir, sbinDir,
+		collectorPort, collectorPort, scheddPort)
 
 	return os.WriteFile(configFile, []byte(config), 0600)
 }

@@ -5,11 +5,27 @@ package ratelimit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
 	"golang.org/x/time/rate"
 )
+
+// RateLimitError represents a rate limiting error
+type RateLimitError struct {
+	Message string
+}
+
+func (e *RateLimitError) Error() string {
+	return e.Message
+}
+
+// IsRateLimitError checks if an error is a rate limit error
+func IsRateLimitError(err error) bool {
+	var rateLimitErr *RateLimitError
+	return errors.As(err, &rateLimitErr)
+}
 
 // Limiter provides rate limiting with both global and per-user limits
 type Limiter struct {
@@ -92,7 +108,7 @@ func (l *Limiter) Allow(username string) error {
 	// Check global limit first
 	if l.globalLimiter != nil {
 		if !l.globalLimiter.Allow() {
-			return fmt.Errorf("global rate limit exceeded")
+			return &RateLimitError{Message: "global rate limit exceeded"}
 		}
 	}
 
@@ -100,7 +116,7 @@ func (l *Limiter) Allow(username string) error {
 	if l.perUserRate > 0 {
 		userLimiter := l.getUserLimiter(username)
 		if userLimiter != nil && !userLimiter.Allow() {
-			return fmt.Errorf("rate limit exceeded for user %s", username)
+			return &RateLimitError{Message: fmt.Sprintf("rate limit exceeded for user %s", username)}
 		}
 	}
 

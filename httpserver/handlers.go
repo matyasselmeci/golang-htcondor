@@ -11,6 +11,7 @@ import (
 	"github.com/PelicanPlatform/classad/classad"
 	htcondor "github.com/bbockelm/golang-htcondor"
 	"github.com/bbockelm/golang-htcondor/logging"
+	"github.com/bbockelm/golang-htcondor/ratelimit"
 )
 
 // JobSubmitRequest represents a job submission request
@@ -73,7 +74,7 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	jobAds, err := s.schedd.Query(ctx, constraint, projection)
 	if err != nil {
 		// Check if it's a rate limit error
-		if strings.Contains(err.Error(), "rate limit") {
+		if ratelimit.IsRateLimitError(err) {
 			s.writeError(w, http.StatusTooManyRequests, fmt.Sprintf("Rate limit exceeded: %v", err))
 			return
 		}
@@ -202,7 +203,7 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request, jobID stri
 	// Query for the specific job
 	jobAds, err := s.schedd.Query(ctx, constraint, nil)
 	if err != nil {
-		if strings.Contains(err.Error(), "rate limit") {
+		if ratelimit.IsRateLimitError(err) {
 			s.writeError(w, http.StatusTooManyRequests, fmt.Sprintf("Rate limit exceeded: %v", err))
 			return
 		}
@@ -712,7 +713,7 @@ func (s *Server) handleJobInput(w http.ResponseWriter, r *http.Request, jobID st
 	constraint := fmt.Sprintf("ClusterId == %d && ProcId == %d", cluster, proc)
 	jobAds, err := s.schedd.Query(ctx, constraint, nil)
 	if err != nil {
-		if strings.Contains(err.Error(), "rate limit") {
+		if ratelimit.IsRateLimitError(err) {
 			s.writeError(w, http.StatusTooManyRequests, fmt.Sprintf("Rate limit exceeded: %v", err))
 			return
 		}
@@ -1049,7 +1050,7 @@ func (s *Server) handleCollectorAds(w http.ResponseWriter, r *http.Request) {
 	// In a more complete implementation, we'd query all ad types
 	ads, err := s.collector.QueryAdsWithProjection(ctx, "StartdAd", constraint, projection)
 	if err != nil {
-		if strings.Contains(err.Error(), "rate limit") {
+		if ratelimit.IsRateLimitError(err) {
 			s.writeError(w, http.StatusTooManyRequests, fmt.Sprintf("Rate limit exceeded: %v", err))
 			return
 		}
@@ -1117,7 +1118,7 @@ func (s *Server) handleCollectorAdsByType(w http.ResponseWriter, r *http.Request
 	// Query collector
 	ads, err := s.collector.QueryAdsWithProjection(ctx, queryAdType, constraint, projection)
 	if err != nil {
-		if strings.Contains(err.Error(), "rate limit") {
+		if ratelimit.IsRateLimitError(err) {
 			s.writeError(w, http.StatusTooManyRequests, fmt.Sprintf("Rate limit exceeded: %v", err))
 			return
 		}
@@ -1185,7 +1186,7 @@ func (s *Server) handleCollectorAdByName(w http.ResponseWriter, r *http.Request,
 	// Query collector
 	ads, err := s.collector.QueryAdsWithProjection(ctx, queryAdType, constraint, projection)
 	if err != nil {
-		if strings.Contains(err.Error(), "rate limit") {
+		if ratelimit.IsRateLimitError(err) {
 			s.writeError(w, http.StatusTooManyRequests, fmt.Sprintf("Rate limit exceeded: %v", err))
 			return
 		}

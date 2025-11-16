@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	htcondor "github.com/bbockelm/golang-htcondor"
@@ -25,6 +26,14 @@ type Server struct {
 	prometheusExporter *metricsd.PrometheusExporter
 	stdin              io.Reader
 	stdout             io.Writer
+	validatedTokens    map[string]TokenInfo // Cache of validated tokens
+	tokenMutex         sync.RWMutex
+}
+
+// TokenInfo stores information about a validated token
+type TokenInfo struct {
+	Username   string
+	Expiration time.Time
 }
 
 // Config holds server configuration
@@ -87,14 +96,15 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	s := &Server{
-		schedd:         schedd,
-		collector:      cfg.Collector,
-		trustDomain:    cfg.TrustDomain,
-		uidDomain:      cfg.UIDDomain,
-		signingKeyPath: cfg.SigningKeyPath,
-		logger:         logger,
-		stdin:          stdin,
-		stdout:         stdout,
+		schedd:          schedd,
+		collector:       cfg.Collector,
+		trustDomain:     cfg.TrustDomain,
+		uidDomain:       cfg.UIDDomain,
+		signingKeyPath:  cfg.SigningKeyPath,
+		logger:          logger,
+		stdin:           stdin,
+		stdout:          stdout,
+		validatedTokens: make(map[string]TokenInfo),
 	}
 
 	// Setup metrics if collector is provided
