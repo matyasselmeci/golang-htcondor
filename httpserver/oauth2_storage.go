@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3" // SQLite driver
+	_ "github.com/glebarez/sqlite" // SQLite driver (pure Go, no CGO)
 	"github.com/ory/fosite"
 )
 
@@ -87,6 +87,12 @@ func (s *OAuth2Storage) createTables() error {
 		subject TEXT NOT NULL,
 		active INTEGER NOT NULL DEFAULT 1,
 		expires_at TIMESTAMP NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS oauth2_rsa_keys (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		private_key_pem TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -354,3 +360,23 @@ func (s *OAuth2Storage) RevokeAccessToken(ctx context.Context, requestID string)
 	_, err := s.db.ExecContext(ctx, `UPDATE oauth2_access_tokens SET active = 0 WHERE request_id = ?`, requestID)
 	return err
 }
+
+// SaveRSAKey stores the RSA private key in PEM format
+func (s *OAuth2Storage) SaveRSAKey(ctx context.Context, privateKeyPEM string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO oauth2_rsa_keys (id, private_key_pem) VALUES (1, ?)`, privateKeyPEM)
+	return err
+}
+
+// LoadRSAKey loads the RSA private key in PEM format
+func (s *OAuth2Storage) LoadRSAKey(ctx context.Context) (string, error) {
+	var privateKeyPEM string
+	err := s.db.QueryRowContext(ctx, `SELECT private_key_pem FROM oauth2_rsa_keys WHERE id = 1`).Scan(&privateKeyPEM)
+	if err == sql.ErrNoRows {
+		return "", nil // No key stored yet
+	}
+	if err != nil {
+		return "", err
+	}
+	return privateKeyPEM, nil
+}
+

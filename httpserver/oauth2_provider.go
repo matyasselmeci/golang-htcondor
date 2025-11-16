@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"time"
 
@@ -27,10 +29,40 @@ func NewOAuth2Provider(dbPath string, issuer string) (*OAuth2Provider, error) {
 		return nil, fmt.Errorf("failed to create storage: %w", err)
 	}
 
-	// Generate RSA key for JWT signing
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	// Try to load existing RSA key from database
+	ctx := context.Background()
+	privateKeyPEM, err := storage.LoadRSAKey(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate RSA key: %w", err)
+		return nil, fmt.Errorf("failed to load RSA key: %w", err)
+	}
+
+	var privateKey *rsa.PrivateKey
+	if privateKeyPEM == "" {
+		// Generate new RSA key
+		privateKey, err = rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate RSA key: %w", err)
+		}
+
+		// Persist the key in the database
+		keyBytes := x509.MarshalPKCS1PrivateKey(privateKey)
+		keyPEM := pem.EncodeToMemory(&pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: keyBytes,
+		})
+		if err := storage.SaveRSAKey(ctx, string(keyPEM)); err != nil {
+			return nil, fmt.Errorf("failed to save RSA key: %w", err)
+		}
+	} else {
+		// Parse existing key from PEM
+		block, _ := pem.Decode([]byte(privateKeyPEM))
+		if block == nil {
+			return nil, fmt.Errorf("failed to decode PEM block")
+		}
+		privateKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse RSA key: %w", err)
+		}
 	}
 
 	config := &fosite.Config{
@@ -38,7 +70,7 @@ func NewOAuth2Provider(dbPath string, issuer string) (*OAuth2Provider, error) {
 		RefreshTokenLifespan:     time.Hour * 24 * 7,
 		AuthorizeCodeLifespan:    time.Minute * 10,
 		IDTokenLifespan:          time.Hour,
-		TokenURL:                 issuer + "/mcp/token",
+		TokenURL:                 issuer + "/mcp/oauth2/token",
 		AccessTokenIssuer:        issuer,
 		ScopeStrategy:            fosite.HierarchicScopeStrategy,
 		AudienceMatchingStrategy: fosite.DefaultAudienceMatchingStrategy,
@@ -51,13 +83,12 @@ func NewOAuth2Provider(dbPath string, issuer string) (*OAuth2Provider, error) {
 		},
 	}
 
-	// Create OAuth2 provider with all necessary handlers
+	// Create OAuth2 provider - removed OAuth2ClientCredentialsGrantFactory
 	oauth2Provider := compose.Compose(
 		config,
 		storage,
 		jwtStrategy,
 		compose.OAuth2AuthorizeExplicitFactory,
-		compose.OAuth2ClientCredentialsGrantFactory,
 		compose.OAuth2RefreshTokenGrantFactory,
 		compose.OpenIDConnectExplicitFactory,
 		compose.OAuth2TokenIntrospectionFactory,
