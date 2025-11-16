@@ -296,6 +296,101 @@ func (s *Server) handleOAuth2Revoke(w http.ResponseWriter, r *http.Request) {
 	s.oauth2Provider.GetProvider().WriteRevocationResponse(ctx, w, nil)
 }
 
+// handleOAuth2Register handles dynamic client registration (RFC 7591)
+func (s *Server) handleOAuth2Register(w http.ResponseWriter, r *http.Request) {
+	if s.oauth2Provider == nil {
+		s.writeError(w, http.StatusInternalServerError, "OAuth2 not configured")
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	ctx := r.Context()
+
+	// Parse registration request
+	var regReq struct {
+		RedirectURIs  []string `json:"redirect_uris"`
+		GrantTypes    []string `json:"grant_types"`
+		ResponseTypes []string `json:"response_types"`
+		Scopes        []string `json:"scope"`
+		ClientName    string   `json:"client_name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&regReq); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid registration request")
+		return
+	}
+
+	// Validate redirect URIs
+	if len(regReq.RedirectURIs) == 0 {
+		s.writeError(w, http.StatusBadRequest, "At least one redirect_uri is required")
+		return
+	}
+
+	// Generate client ID and secret
+	clientID := fmt.Sprintf("client_%d", time.Now().UnixNano())
+	clientSecret := generateRandomString(32)
+
+	// Default values
+	if len(regReq.GrantTypes) == 0 {
+		regReq.GrantTypes = []string{"authorization_code", "refresh_token"}
+	}
+	if len(regReq.ResponseTypes) == 0 {
+		regReq.ResponseTypes = []string{"code"}
+	}
+	if len(regReq.Scopes) == 0 {
+		regReq.Scopes = []string{"openid", "mcp:read", "mcp:write"}
+	}
+
+	// Create the client
+	client := &fosite.DefaultClient{
+		ID:            clientID,
+		Secret:        []byte(clientSecret),
+		RedirectURIs:  regReq.RedirectURIs,
+		GrantTypes:    regReq.GrantTypes,
+		ResponseTypes: regReq.ResponseTypes,
+		Scopes:        regReq.Scopes,
+		Public:        false,
+	}
+
+	if err := s.oauth2Provider.GetStorage().CreateClient(ctx, client); err != nil {
+		s.logger.Error(logging.DestinationHTTP, "Failed to create client", "error", err)
+		s.writeError(w, http.StatusInternalServerError, "Failed to register client")
+		return
+	}
+
+	// Return registration response
+	resp := map[string]interface{}{
+		"client_id":      clientID,
+		"client_secret":  clientSecret,
+		"redirect_uris":  regReq.RedirectURIs,
+		"grant_types":    regReq.GrantTypes,
+		"response_types": regReq.ResponseTypes,
+		"scope":          strings.Join(regReq.Scopes, " "),
+		"client_name":    regReq.ClientName,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error(logging.DestinationHTTP, "Failed to encode response", "error", err)
+	}
+}
+
+// generateRandomString generates a random string of specified length
+func generateRandomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
+		time.Sleep(time.Nanosecond) // Ensure different values
+	}
+	return string(b)
+}
+
 // generateHTCondorToken generates an HTCondor token for a user
 func (s *Server) generateHTCondorToken(username string) (string, error) {
 	if s.signingKeyPath == "" {

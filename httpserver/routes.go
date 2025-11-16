@@ -25,6 +25,7 @@ func (s *Server) setupRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("/mcp/oauth2/token", s.handleOAuth2Token)
 		mux.HandleFunc("/mcp/oauth2/introspect", s.handleOAuth2Introspect)
 		mux.HandleFunc("/mcp/oauth2/revoke", s.handleOAuth2Revoke)
+		mux.HandleFunc("/mcp/oauth2/register", s.handleOAuth2Register) // Dynamic client registration (RFC 7591)
 
 		// MCP protocol endpoint
 		mux.HandleFunc("/mcp/message", s.handleMCPMessage)
