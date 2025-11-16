@@ -8,12 +8,26 @@ import (
 
 // setupRoutes sets up all HTTP routes
 func (s *Server) setupRoutes(mux *http.ServeMux) {
+	// CORS middleware: allow all origins
+	cors := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "*")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			h.ServeHTTP(w, r)
+		})
+	}
+
 	// OpenAPI schema
-	mux.HandleFunc("/openapi.json", s.handleOpenAPISchema)
+	mux.Handle("/openapi.json", cors(http.HandlerFunc(s.handleOpenAPISchema)))
 
 	// Job management endpoints
-	mux.HandleFunc("/api/v1/jobs", s.handleJobs)
-	mux.HandleFunc("/api/v1/jobs/", s.handleJobsPath) // Pattern with trailing slash catches /api/v1/jobs/* paths
+	mux.Handle("/api/v1/jobs", cors(http.HandlerFunc(s.handleJobs)))
+	mux.Handle("/api/v1/jobs/", cors(http.HandlerFunc(s.handleJobByID))) // Pattern with trailing slash catches /api/v1/jobs/{id}
 
 	// Collector endpoints
 	mux.HandleFunc("/api/v1/collector/", s.handleCollectorPath) // Pattern with trailing slash catches /api/v1/collector/* paths
