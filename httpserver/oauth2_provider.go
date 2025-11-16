@@ -34,13 +34,13 @@ func NewOAuth2Provider(dbPath string, issuer string) (*OAuth2Provider, error) {
 	}
 
 	config := &fosite.Config{
-		AccessTokenLifespan:   time.Hour,
-		RefreshTokenLifespan:  time.Hour * 24 * 7,
-		AuthorizeCodeLifespan: time.Minute * 10,
-		IDTokenLifespan:       time.Hour,
-		TokenURL:              issuer + "/mcp/token",
-		AccessTokenIssuer:     issuer,
-		ScopeStrategy:         fosite.HierarchicScopeStrategy,
+		AccessTokenLifespan:      time.Hour,
+		RefreshTokenLifespan:     time.Hour * 24 * 7,
+		AuthorizeCodeLifespan:    time.Minute * 10,
+		IDTokenLifespan:          time.Hour,
+		TokenURL:                 issuer + "/mcp/token",
+		AccessTokenIssuer:        issuer,
+		ScopeStrategy:            fosite.HierarchicScopeStrategy,
 		AudienceMatchingStrategy: fosite.DefaultAudienceMatchingStrategy,
 	}
 

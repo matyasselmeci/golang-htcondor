@@ -63,7 +63,7 @@ func (s *Server) handleMCPMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Create context with security config for HTCondor operations
 	ctx := r.Context()
-	
+
 	// If we have a signing key, generate an HTCondor token for this user
 	if s.signingKeyPath != "" && s.trustDomain != "" {
 		htcToken, err := s.generateHTCondorToken(username)
@@ -72,7 +72,7 @@ func (s *Server) handleMCPMessage(w http.ResponseWriter, r *http.Request) {
 			s.writeError(w, http.StatusInternalServerError, "Failed to generate authentication token")
 			return
 		}
-		
+
 		// Create security config with the token
 		secConfig := &security.SecurityConfig{
 			AuthMethods:    []security.AuthMethod{security.AuthToken},
@@ -102,10 +102,10 @@ func (s *Server) handleMCPMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Create pipes for stdin/stdout simulation
 	var responseBuffer bytes.Buffer
-	
+
 	// Write the request to a buffer that the MCP server can read
 	requestBuffer := bytes.NewBuffer(body)
-	
+
 	// Temporarily replace the server's stdin/stdout
 	originalStdin := mcpServer.SetStdin(requestBuffer)
 	originalStdout := mcpServer.SetStdout(&responseBuffer)
@@ -147,7 +147,7 @@ func (s *Server) validateOAuth2Token(r *http.Request) (fosite.AccessRequester, e
 	// Validate the token using fosite
 	ctx := r.Context()
 	session := &openid.DefaultSession{}
-	
+
 	tokenType, accessRequest, err := s.oauth2Provider.GetProvider().IntrospectToken(
 		ctx,
 		tokenString,
@@ -155,7 +155,7 @@ func (s *Server) validateOAuth2Token(r *http.Request) (fosite.AccessRequester, e
 		session,
 	)
 	_ = tokenType // Not used but returned by IntrospectToken
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("token validation failed: %w", err)
 	}
@@ -171,7 +171,7 @@ func (s *Server) handleOAuth2Authorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	
+
 	// Parse authorization request
 	ar, err := s.oauth2Provider.GetProvider().NewAuthorizeRequest(ctx, r)
 	if err != nil {
@@ -185,7 +185,7 @@ func (s *Server) handleOAuth2Authorize(w http.ResponseWriter, r *http.Request) {
 	if s.userHeader != "" {
 		username = r.Header.Get(s.userHeader)
 	}
-	
+
 	// If no user header, check for username in query parameters (for SSO flow)
 	if username == "" {
 		username = r.URL.Query().Get("username")
@@ -218,7 +218,7 @@ func (s *Server) handleOAuth2Token(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	
+
 	// Create the session object
 	session := &openid.DefaultSession{}
 
@@ -277,7 +277,7 @@ func (s *Server) handleOAuth2Revoke(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	
+
 	err := s.oauth2Provider.GetProvider().NewRevocationRequest(ctx, r)
 	if err != nil {
 		s.logger.Error(logging.DestinationHTTP, "Failed to revoke token", "error", err)

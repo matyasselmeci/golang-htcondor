@@ -4,7 +4,7 @@ package httpserver
 import (
 	"crypto/rand"
 	"fmt"
-	
+
 	"github.com/bbockelm/cedar/security"
 )
 

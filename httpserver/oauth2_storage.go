@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ory/fosite"
 	_ "github.com/mattn/go-sqlite3" // SQLite driver
+	"github.com/ory/fosite"
 )
 
 // OAuth2Storage implements fosite storage interfaces using SQLite
@@ -274,15 +274,15 @@ func (s *OAuth2Storage) createTokenSession(ctx context.Context, table string, si
 
 func (s *OAuth2Storage) getTokenSession(ctx context.Context, table string, signature string, session fosite.Session) (fosite.Requester, error) {
 	var (
-		requestID      string
-		requestedAt    time.Time
-		clientID       string
-		scopes         string
-		grantedScopes  string
-		formData       string
-		sessionData    string
-		subject        string
-		active         int
+		requestID     string
+		requestedAt   time.Time
+		clientID      string
+		scopes        string
+		grantedScopes string
+		formData      string
+		sessionData   string
+		subject       string
+		active        int
 	)
 
 	query := fmt.Sprintf(`
