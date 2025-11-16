@@ -22,6 +22,7 @@ import (
 type Server struct {
 	httpServer         *http.Server
 	schedd             *htcondor.Schedd
+	collector          *htcondor.Collector
 	userHeader         string
 	signingKeyPath     string
 	trustDomain        string
@@ -98,6 +99,7 @@ func NewServer(cfg Config) (*Server, error) {
 
 	s := &Server{
 		schedd:         schedd,
+		collector:      cfg.Collector,
 		trustDomain:    cfg.TrustDomain,
 		uidDomain:      cfg.UIDDomain,
 		userHeader:     cfg.UserHeader,

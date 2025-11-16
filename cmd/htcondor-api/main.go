@@ -20,9 +20,10 @@ import (
 )
 
 var (
-	demoMode   = flag.Bool("demo", false, "Run in demo mode with mini condor")
-	listenAddr = flag.String("listen", ":8080", "Address to listen on")
-	userHeader = flag.String("user-header", "", "HTTP header to read username from (e.g., X-Remote-User). Only used in demo mode with token generation.")
+	demoMode      = flag.Bool("demo", false, "Run in demo mode with mini condor")
+	listenAddr    = flag.String("listen", ":8080", "Address to listen on")
+	userHeader    = flag.String("user-header", "", "HTTP header to read username from (e.g., X-Remote-User). Only used in demo mode with token generation.")
+	collectorHost = flag.String("collector", "", "Collector host (e.g., 'collector.example.com:9618'). Falls back to COLLECTOR_HOST config if not specified.")
 )
 
 func main() {
@@ -164,11 +165,16 @@ func runNormalMode() error {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
 
-	// Create collector from COLLECTOR_HOST
+	// Create collector from command-line flag or COLLECTOR_HOST config
 	var collector *htcondor.Collector
-	if collectorHost, ok := cfg.Get("COLLECTOR_HOST"); ok && collectorHost != "" {
-		collector = htcondor.NewCollector(collectorHost)
-		logger.Info(logging.DestinationCollector, "Created collector", "host", collectorHost)
+	collectorHostStr := *collectorHost
+	if collectorHostStr == "" {
+		// Fall back to config
+		collectorHostStr, _ = cfg.Get("COLLECTOR_HOST")
+	}
+	if collectorHostStr != "" {
+		collector = htcondor.NewCollector(collectorHostStr)
+		logger.Info(logging.DestinationCollector, "Created collector", "host", collectorHostStr)
 	}
 
 	// Load MCP configuration

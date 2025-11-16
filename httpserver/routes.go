@@ -13,7 +13,10 @@ func (s *Server) setupRoutes(mux *http.ServeMux) {
 
 	// Job management endpoints
 	mux.HandleFunc("/api/v1/jobs", s.handleJobs)
-	mux.HandleFunc("/api/v1/jobs/", s.handleJobByID) // Pattern with trailing slash catches /api/v1/jobs/{id}
+	mux.HandleFunc("/api/v1/jobs/", s.handleJobsPath) // Pattern with trailing slash catches /api/v1/jobs/* paths
+
+	// Collector endpoints
+	mux.HandleFunc("/api/v1/collector/", s.handleCollectorPath) // Pattern with trailing slash catches /api/v1/collector/* paths
 
 	// MCP endpoints (OAuth2 protected)
 	if s.oauth2Provider != nil {
