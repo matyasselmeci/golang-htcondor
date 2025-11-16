@@ -12,18 +12,18 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// RateLimitError represents a rate limiting error
-type RateLimitError struct {
+// Error represents a rate limiting error
+type Error struct {
 	Message string
 }
 
-func (e *RateLimitError) Error() string {
+func (e *Error) Error() string {
 	return e.Message
 }
 
 // IsRateLimitError checks if an error is a rate limit error
 func IsRateLimitError(err error) bool {
-	var rateLimitErr *RateLimitError
+	var rateLimitErr *Error
 	return errors.As(err, &rateLimitErr)
 }
 
@@ -108,7 +108,7 @@ func (l *Limiter) Allow(username string) error {
 	// Check global limit first
 	if l.globalLimiter != nil {
 		if !l.globalLimiter.Allow() {
-			return &RateLimitError{Message: "global rate limit exceeded"}
+			return &Error{Message: "global rate limit exceeded"}
 		}
 	}
 
@@ -116,7 +116,7 @@ func (l *Limiter) Allow(username string) error {
 	if l.perUserRate > 0 {
 		userLimiter := l.getUserLimiter(username)
 		if userLimiter != nil && !userLimiter.Allow() {
-			return &RateLimitError{Message: fmt.Sprintf("rate limit exceeded for user %s", username)}
+			return &Error{Message: fmt.Sprintf("rate limit exceeded for user %s", username)}
 		}
 	}
 
@@ -133,7 +133,7 @@ func (l *Limiter) Wait(ctx context.Context, username string) error {
 	// Wait for global limit
 	if l.globalLimiter != nil {
 		if err := l.globalLimiter.Wait(ctx); err != nil {
-			return &RateLimitError{Message: fmt.Sprintf("global rate limit wait cancelled: %v", err)}
+			return &Error{Message: fmt.Sprintf("global rate limit wait cancelled: %v", err)}
 		}
 	}
 
@@ -142,7 +142,7 @@ func (l *Limiter) Wait(ctx context.Context, username string) error {
 		userLimiter := l.getUserLimiter(username)
 		if userLimiter != nil {
 			if err := userLimiter.Wait(ctx); err != nil {
-				return &RateLimitError{Message: fmt.Sprintf("rate limit wait cancelled for user %s: %v", username, err)}
+				return &Error{Message: fmt.Sprintf("rate limit wait cancelled for user %s: %v", username, err)}
 			}
 		}
 	}

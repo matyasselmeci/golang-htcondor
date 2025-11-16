@@ -131,20 +131,6 @@ func parseJWTClaims(token string) (username string, expiration time.Time, err er
 	return claims.Subject, claims.ExpiresAt.Time, nil
 }
 
-// parseJWTUsername extracts the username (sub claim) from a JWT token
-// This is a convenience wrapper around parseJWTClaims for cases where only username is needed
-func parseJWTUsername(token string) (string, error) {
-	username, _, err := parseJWTClaims(token)
-	return username, err
-}
-
-// parseJWTExpiration extracts the expiration time from a JWT token
-// This is a convenience wrapper around parseJWTClaims for cases where only expiration is needed
-func parseJWTExpiration(token string) (time.Time, error) {
-	_, expiration, err := parseJWTClaims(token)
-	return expiration, err
-}
-
 // Add adds a validated token to the cache with a session cache
 // If the token is already in the cache, returns the existing entry
 // Automatically schedules cleanup when the token expires
