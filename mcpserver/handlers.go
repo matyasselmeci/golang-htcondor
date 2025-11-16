@@ -270,12 +270,9 @@ func (s *Server) handleCallTool(ctx context.Context, params json.RawMessage) (in
 
 	// If operation succeeded and token was provided but not yet validated, mark it as validated
 	if err == nil && token != "" && username == "" {
-		// Parse username from token and mark as validated
-		if extractedUsername, parseErr := parseJWTUsername(token); parseErr == nil {
-			// Parse expiration from token
-			if expiration, expErr := parseJWTExpiration(token); expErr == nil {
-				s.markTokenValidated(token, extractedUsername, expiration)
-			}
+		// Parse username and expiration from token in a single call
+		if extractedUsername, expiration, parseErr := parseJWTClaims(token); parseErr == nil {
+			s.markTokenValidated(token, extractedUsername, expiration)
 		}
 	}
 
@@ -659,50 +656,45 @@ func parseJobID(jobID string) (cluster int, proc int, err error) {
 	return cluster, proc, nil
 }
 
-// parseJWTUsername extracts the username (sub claim) from a JWT token using the JWT library
-// Returns the username or an error if parsing fails
-func parseJWTUsername(token string) (string, error) {
+// parseJWTClaims extracts username and expiration from a JWT token using the JWT library
+// Returns the username, expiration time, or an error if parsing fails
+func parseJWTClaims(token string) (username string, expiration time.Time, err error) {
 	// Parse the token without verification (we just need to read claims)
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
-	parsedToken, _, err := parser.ParseUnverified(token, &jwt.RegisteredClaims{})
-	if err != nil {
-		return "", fmt.Errorf("failed to parse JWT: %w", err)
+	parsedToken, _, parseErr := parser.ParseUnverified(token, &jwt.RegisteredClaims{})
+	if parseErr != nil {
+		return "", time.Time{}, fmt.Errorf("failed to parse JWT: %w", parseErr)
 	}
 
 	// Extract standard claims
 	claims, ok := parsedToken.Claims.(*jwt.RegisteredClaims)
 	if !ok {
-		return "", fmt.Errorf("failed to extract JWT claims")
+		return "", time.Time{}, fmt.Errorf("failed to extract JWT claims")
 	}
 
 	// Check if subject is set
 	if claims.Subject == "" {
-		return "", fmt.Errorf("JWT missing sub claim")
-	}
-
-	return claims.Subject, nil
-}
-
-// parseJWTExpiration extracts the expiration time from a JWT token using the JWT library
-// Returns the expiration time or an error if parsing fails
-func parseJWTExpiration(token string) (time.Time, error) {
-	// Parse the token without verification (we just need to read claims)
-	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
-	parsedToken, _, err := parser.ParseUnverified(token, &jwt.RegisteredClaims{})
-	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to parse JWT: %w", err)
-	}
-
-	// Extract standard claims
-	claims, ok := parsedToken.Claims.(*jwt.RegisteredClaims)
-	if !ok {
-		return time.Time{}, fmt.Errorf("failed to extract JWT claims")
+		return "", time.Time{}, fmt.Errorf("JWT missing sub claim")
 	}
 
 	// Check if expiration is set
 	if claims.ExpiresAt == nil {
-		return time.Time{}, fmt.Errorf("JWT missing exp claim")
+		return "", time.Time{}, fmt.Errorf("JWT missing exp claim")
 	}
 
-	return claims.ExpiresAt.Time, nil
+	return claims.Subject, claims.ExpiresAt.Time, nil
+}
+
+// parseJWTUsername extracts the username (sub claim) from a JWT token
+// This is a convenience wrapper around parseJWTClaims for cases where only username is needed
+func parseJWTUsername(token string) (string, error) {
+	username, _, err := parseJWTClaims(token)
+	return username, err
+}
+
+// parseJWTExpiration extracts the expiration time from a JWT token
+// This is a convenience wrapper around parseJWTClaims for cases where only expiration is needed
+func parseJWTExpiration(token string) (time.Time, error) {
+	_, expiration, err := parseJWTClaims(token)
+	return expiration, err
 }

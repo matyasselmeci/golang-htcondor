@@ -82,6 +82,7 @@ func GetScheddWithToken(ctx context.Context, schedd *htcondor.Schedd) (*htcondor
 // TokenCacheEntry represents a cached token with its expiration and associated session cache
 type TokenCacheEntry struct {
 	Token         string
+	Username      string // Username extracted from JWT (for rate limiting)
 	Expiration    time.Time
 	SessionCache  *security.SessionCache
 	expiryTimer   *time.Timer
@@ -101,52 +102,47 @@ func NewTokenCache() *TokenCache {
 	}
 }
 
-// parseJWTExpiration extracts the expiration time from a JWT token using the JWT library
-// Returns the expiration time or an error if parsing fails
-func parseJWTExpiration(token string) (time.Time, error) {
+// parseJWTClaims extracts username and expiration from a JWT token using the JWT library
+// Returns the username, expiration time, or an error if parsing fails
+func parseJWTClaims(token string) (username string, expiration time.Time, err error) {
 	// Parse the token without verification (we just need to read claims)
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
-	parsedToken, _, err := parser.ParseUnverified(token, &jwt.RegisteredClaims{})
-	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to parse JWT: %w", err)
+	parsedToken, _, parseErr := parser.ParseUnverified(token, &jwt.RegisteredClaims{})
+	if parseErr != nil {
+		return "", time.Time{}, fmt.Errorf("failed to parse JWT: %w", parseErr)
 	}
 
 	// Extract standard claims
 	claims, ok := parsedToken.Claims.(*jwt.RegisteredClaims)
 	if !ok {
-		return time.Time{}, fmt.Errorf("failed to extract JWT claims")
-	}
-
-	// Check if expiration is set
-	if claims.ExpiresAt == nil {
-		return time.Time{}, fmt.Errorf("JWT missing exp claim")
-	}
-
-	return claims.ExpiresAt.Time, nil
-}
-
-// parseJWTUsername extracts the username (sub claim) from a JWT token using the JWT library
-// Returns the username or an error if parsing fails
-func parseJWTUsername(token string) (string, error) {
-	// Parse the token without verification (we just need to read claims)
-	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
-	parsedToken, _, err := parser.ParseUnverified(token, &jwt.RegisteredClaims{})
-	if err != nil {
-		return "", fmt.Errorf("failed to parse JWT: %w", err)
-	}
-
-	// Extract standard claims
-	claims, ok := parsedToken.Claims.(*jwt.RegisteredClaims)
-	if !ok {
-		return "", fmt.Errorf("failed to extract JWT claims")
+		return "", time.Time{}, fmt.Errorf("failed to extract JWT claims")
 	}
 
 	// Check if subject is set
 	if claims.Subject == "" {
-		return "", fmt.Errorf("JWT missing sub claim")
+		return "", time.Time{}, fmt.Errorf("JWT missing sub claim")
 	}
 
-	return claims.Subject, nil
+	// Check if expiration is set
+	if claims.ExpiresAt == nil {
+		return "", time.Time{}, fmt.Errorf("JWT missing exp claim")
+	}
+
+	return claims.Subject, claims.ExpiresAt.Time, nil
+}
+
+// parseJWTUsername extracts the username (sub claim) from a JWT token
+// This is a convenience wrapper around parseJWTClaims for cases where only username is needed
+func parseJWTUsername(token string) (string, error) {
+	username, _, err := parseJWTClaims(token)
+	return username, err
+}
+
+// parseJWTExpiration extracts the expiration time from a JWT token
+// This is a convenience wrapper around parseJWTClaims for cases where only expiration is needed
+func parseJWTExpiration(token string) (time.Time, error) {
+	_, expiration, err := parseJWTClaims(token)
+	return expiration, err
 }
 
 // Add adds a validated token to the cache with a session cache
@@ -167,10 +163,10 @@ func (tc *TokenCache) Add(token string) (*TokenCacheEntry, error) {
 		}
 	}
 
-	// Parse token to get expiration
-	expiration, err := parseJWTExpiration(token)
+	// Parse token to get username and expiration
+	username, expiration, err := parseJWTClaims(token)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse token expiration: %w", err)
+		return nil, fmt.Errorf("failed to parse token claims: %w", err)
 	}
 
 	// Check if already expired
@@ -186,6 +182,7 @@ func (tc *TokenCache) Add(token string) (*TokenCacheEntry, error) {
 
 	entry := &TokenCacheEntry{
 		Token:         token,
+		Username:      username,
 		Expiration:    expiration,
 		SessionCache:  sessionCache,
 		cancelCleanup: cancel,
