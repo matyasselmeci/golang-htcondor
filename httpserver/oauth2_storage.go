@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -25,7 +26,7 @@ func NewOAuth2Storage(dbPath string) (*OAuth2Storage, error) {
 
 	storage := &OAuth2Storage{db: db}
 	if err := storage.createTables(); err != nil {
-		db.Close()
+		_ = db.Close() // Ignore error on cleanup
 		return nil, fmt.Errorf("failed to create tables: %w", err)
 	}
 
@@ -101,13 +102,51 @@ func (s *OAuth2Storage) createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_authorization_codes_client ON oauth2_authorization_codes(client_id);
 	`
 
-	_, err := s.db.Exec(schema)
+	_, err := s.db.ExecContext(context.Background(), schema)
 	return err
 }
 
 // Close closes the database connection
 func (s *OAuth2Storage) Close() error {
 	return s.db.Close()
+}
+
+// validTableNames is a whitelist of allowed table names
+var validTableNames = map[string]bool{
+	"oauth2_access_tokens":        true,
+	"oauth2_refresh_tokens":       true,
+	"oauth2_authorization_codes":  true,
+}
+
+// buildInsertQuery builds an INSERT query for a valid table name
+func buildInsertQuery(table string) (string, error) {
+	if !validTableNames[table] {
+		return "", fmt.Errorf("invalid table name: %s", table)
+	}
+	// Safe: table name is from whitelist
+	return `INSERT INTO ` + table + ` (signature, request_id, requested_at, client_id, scopes, granted_scopes, 
+		form_data, session_data, subject, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, nil
+}
+
+// buildSelectQuery builds a SELECT query for a valid table name
+func buildSelectQuery(table string) (string, error) {
+	if !validTableNames[table] {
+		return "", fmt.Errorf("invalid table name: %s", table)
+	}
+	// Safe: table name is from whitelist
+	return `SELECT request_id, requested_at, client_id, scopes, granted_scopes, 
+		form_data, session_data, subject, active
+		FROM ` + table + ` WHERE signature = ?`, nil
+}
+
+// buildDeleteQuery builds a DELETE query for a valid table name
+func buildDeleteQuery(table string) (string, error) {
+	if !validTableNames[table] {
+		return "", fmt.Errorf("invalid table name: %s", table)
+	}
+	// Safe: table name is from whitelist
+	return `DELETE FROM ` + table + ` WHERE signature = ?`, nil
 }
 
 // CreateClient creates a new OAuth2 client
@@ -256,11 +295,10 @@ func (s *OAuth2Storage) createTokenSession(ctx context.Context, table string, si
 
 	expiresAt := time.Now().Add(1 * time.Hour) // Default expiration
 
-	query := fmt.Sprintf(`
-		INSERT INTO %s (signature, request_id, requested_at, client_id, scopes, granted_scopes, 
-			form_data, session_data, subject, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, table)
+	query, err := buildInsertQuery(table)
+	if err != nil {
+		return err
+	}
 
 	_, err = s.db.ExecContext(ctx, query,
 		signature,
@@ -291,18 +329,17 @@ func (s *OAuth2Storage) getTokenSession(ctx context.Context, table string, signa
 		active        int
 	)
 
-	query := fmt.Sprintf(`
-		SELECT request_id, requested_at, client_id, scopes, granted_scopes, 
-			form_data, session_data, subject, active
-		FROM %s WHERE signature = ?
-	`, table)
+	query, err := buildSelectQuery(table)
+	if err != nil {
+		return nil, err
+	}
 
-	err := s.db.QueryRowContext(ctx, query, signature).Scan(
+	err = s.db.QueryRowContext(ctx, query, signature).Scan(
 		&requestID, &requestedAt, &clientID, &scopes, &grantedScopes,
 		&formData, &sessionData, &subject, &active,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fosite.ErrNotFound
 	}
 	if err != nil {
@@ -344,8 +381,11 @@ func (s *OAuth2Storage) getTokenSession(ctx context.Context, table string, signa
 }
 
 func (s *OAuth2Storage) deleteTokenSession(ctx context.Context, table string, signature string) error {
-	query := fmt.Sprintf(`DELETE FROM %s WHERE signature = ?`, table)
-	_, err := s.db.ExecContext(ctx, query, signature)
+	query, err := buildDeleteQuery(table)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, query, signature)
 	return err
 }
 

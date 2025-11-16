@@ -78,7 +78,7 @@ func NewOAuth2Provider(dbPath string, issuer string) (*OAuth2Provider, error) {
 
 	// Create JWK strategy for signing
 	jwtStrategy := &jwt.DefaultSigner{
-		GetPrivateKey: func(ctx context.Context) (interface{}, error) {
+		GetPrivateKey: func(_ context.Context) (interface{}, error) {
 			return privateKey, nil
 		},
 	}

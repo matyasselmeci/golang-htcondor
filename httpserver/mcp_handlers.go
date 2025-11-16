@@ -15,16 +15,7 @@ import (
 	"github.com/bbockelm/golang-htcondor/mcpserver"
 	"github.com/ory/fosite"
 	"github.com/ory/fosite/handler/openid"
-	"golang.org/x/oauth2"
 )
-
-// MCPHandler handles MCP protocol over HTTP
-type MCPHandler struct {
-	mcpServer      *mcpserver.Server
-	oauth2Provider *OAuth2Provider
-	oauth2Config   *oauth2.Config // For SSO client mode
-	logger         *logging.Logger
-}
 
 // handleMCPMessage handles MCP JSON-RPC messages over HTTP
 func (s *Server) handleMCPMessage(w http.ResponseWriter, r *http.Request) {
@@ -238,14 +229,6 @@ func (s *Server) handleOAuth2Token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If this is a client credentials grant and user header is set, use it
-	if accessRequest.GetGrantTypes().ExactOne("client_credentials") && s.userHeader != "" {
-		username := r.Header.Get(s.userHeader)
-		if username != "" {
-			session = DefaultOpenIDConnectSession(username)
-		}
-	}
-
 	// Create access response
 	response, err := s.oauth2Provider.GetProvider().NewAccessResponse(ctx, accessRequest)
 	if err != nil {
@@ -391,46 +374,9 @@ func generateRandomString(length int) string {
 	return string(b)
 }
 
-// generateHTCondorToken generates an HTCondor token for a user
-func (s *Server) generateHTCondorToken(username string) (string, error) {
-	if s.signingKeyPath == "" {
-		return "", fmt.Errorf("signing key path not configured")
-	}
-
-	if s.trustDomain == "" {
-		return "", fmt.Errorf("trust domain not configured")
-	}
-
-	// Ensure username has domain suffix
-	if !strings.Contains(username, "@") {
-		if s.uidDomain == "" {
-			return "", fmt.Errorf("UID domain not configured")
-		}
-		username = username + "@" + s.uidDomain
-	}
-
-	iat := time.Now().Unix()
-	exp := time.Now().Add(1 * time.Hour).Unix()
-
-	token, err := security.GenerateJWT(
-		s.signingKeyPath, // directory
-		"POOL",           // key name
-		username,
-		s.trustDomain,
-		iat,
-		exp,
-		nil,
-	)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate JWT: %w", err)
-	}
-
-	return token, nil
-}
-
 // handleOAuth2Metadata handles OAuth2 authorization server metadata discovery
 // Implements RFC 8414: OAuth 2.0 Authorization Server Metadata
-func (s *Server) handleOAuth2Metadata(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleOAuth2Metadata(w http.ResponseWriter, _ *http.Request) {
 	if s.oauth2Provider == nil {
 		s.writeError(w, http.StatusNotFound, "OAuth2 not configured")
 		return
