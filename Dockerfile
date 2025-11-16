@@ -1,35 +1,66 @@
-# Dockerfile for golang-htcondor development and demo mode
-FROM htcondor/mini_arm64:25.x-el9
+# Use Rocky Linux 9 as base - RHEL-like distro with arm64 support
+FROM rockylinux:9
 
-# Install dependencies for Go and development
-USER root
-RUN dnf -y update && \
-    dnf -y install wget ca-certificates sudo python3 python3-pip git make gcc gcc-c++ which && \
+# Set environment variables
+ENV GO_VERSION=1.24.0 \
+    GOPATH=/go \
+    PATH=/usr/local/go/bin:/go/bin:$PATH \
+    CONDOR_CONFIG=/etc/condor/condor_config
+
+# Install basic development tools and dependencies
+RUN dnf update -y && \
+    dnf install -y \
+    wget \
+    git \
+    gcc \
+    gcc-c++ \
+    make \
+    tar \
+    which \
+    procps-ng \
+    vim \
+    sudo \
+    && dnf clean all
+
+# Install Go
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then GOARCH="arm64"; else GOARCH="amd64"; fi && \
+    wget -q https://go.dev/dl/go${GO_VERSION}.linux-${GOARCH}.tar.gz && \
+    tar -C /usr/local -xzf go${GO_VERSION}.linux-${GOARCH}.tar.gz && \
+    rm go${GO_VERSION}.linux-${GOARCH}.tar.gz
+
+# Add HTCondor repository
+RUN dnf install -y 'dnf-command(config-manager)' && \
+    dnf config-manager --set-enabled crb && \
+    dnf install -y epel-release && \
+    cd /etc/yum.repos.d && \
+    wget https://htcss-downloads.chtc.wisc.edu/repo/25.x/htcondor-release-current.el9.noarch.rpm && \
+    dnf install -y htcondor-release-current.el9.noarch.rpm && \
     dnf clean all
 
-# Install Go 1.25 (ARM64)
-RUN wget https://go.dev/dl/go1.25.0.linux-arm64.tar.gz && \
-    tar -C /usr/local -xzf go1.25.0.linux-arm64.tar.gz && \
-    rm go1.25.0.linux-arm64.tar.gz
-ENV PATH="/usr/local/go/bin:$PATH"
+# Install HTCondor
+RUN dnf install -y condor && \
+    dnf clean all
 
-WORKDIR /home/condor/app
+# Create workspace directory
+WORKDIR /workspace
 
-# Copy project files (for build context)
-COPY --chown=condor:condor . .
+# Create a non-root user for development (useful for Codespaces)
+RUN useradd -m -s /bin/bash -u 1000 vscode && \
+    echo "vscode ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/vscode && \
+    mkdir -p /go && \
+    chown -R vscode:vscode /go /workspace
 
-# Pre-download Go modules for the API server
-RUN cd /home/condor/app/cmd/htcondor-api && go mod download
+# Switch to non-root user
+USER vscode
 
-# Build the API server binary at image build time
-RUN cd /home/condor/app/cmd/htcondor-api && go build -buildvcs=false -o /home/condor/app/htcondor-api
+# Pre-download common Go dependencies (speeds up first build)
+RUN go install golang.org/x/tools/gopls@latest && \
+    go install github.com/go-delve/delve/cmd/dlv@latest && \
+    go install honnef.co/go/tools/cmd/staticcheck@latest
 
-# create a webapp user
-RUN useradd -m -s /bin/bash webapp && \
-    echo 'webapp ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers && \
-    echo 'condor ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+# Set working directory
+WORKDIR /workspace
 
-USER webapp
-
-# Default command: run the built API server in demo mode
-CMD ["/home/condor/app/htcondor-api", "--demo"]
+# Default command
+CMD ["/bin/bash"]
