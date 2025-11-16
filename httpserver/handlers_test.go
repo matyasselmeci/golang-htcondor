@@ -87,6 +87,7 @@ func TestHealthzEndpoint(t *testing.T) {
 			s.handleHealthz(w, req)
 
 			resp := w.Result()
+			defer resp.Body.Close()
 			if resp.StatusCode != tt.wantStatusCode {
 				t.Errorf("handleHealthz() status = %v, want %v", resp.StatusCode, tt.wantStatusCode)
 			}
@@ -137,6 +138,7 @@ func TestReadyzEndpoint(t *testing.T) {
 			s.handleReadyz(w, req)
 
 			resp := w.Result()
+			defer resp.Body.Close()
 			if resp.StatusCode != tt.wantStatusCode {
 				t.Errorf("handleReadyz() status = %v, want %v", resp.StatusCode, tt.wantStatusCode)
 			}
