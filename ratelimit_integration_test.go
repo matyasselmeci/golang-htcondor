@@ -54,7 +54,6 @@ func TestScheddQueryRateLimit(t *testing.T) {
 	}()
 	globalRateLimitManager.Store(manager)
 
-	ctx := context.Background()
 	constraint := "true"
 	projection := []string{"ClusterId", "ProcId"}
 
@@ -67,9 +66,9 @@ func TestScheddQueryRateLimit(t *testing.T) {
 		}
 
 		// Second query should succeed (within burst)
-		_, err = schedd.Query(ctx, constraint, projection)
-		if err != nil {
-			t.Fatalf("second query failed: %v", err)
+		_, err2 := schedd.Query(ctx, constraint, projection)
+		if err2 != nil {
+			t.Fatalf("second query failed: %v", err2)
 		}
 	})
 
