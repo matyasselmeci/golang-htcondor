@@ -160,12 +160,17 @@ client := &fosite.DefaultClient{
 storage.CreateClient(context.Background(), client)
 ```
 
-### Getting an Access Token
+### Getting an Access Token (Authorization Code Flow)
 
 ```bash
+# Step 1: Direct user to authorization endpoint
+# User will be redirected to this URL:
+https://server/mcp/oauth2/authorize?response_type=code&client_id=my-client&redirect_uri=http://localhost/callback&scope=openid+mcp:read+mcp:write
+
+# Step 2: After user authorizes, exchange the code for a token
 curl -X POST http://localhost:8080/mcp/oauth2/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials&client_id=my-client&client_secret=my-secret"
+  -d "grant_type=authorization_code&code=AUTH_CODE&redirect_uri=http://localhost/callback&client_id=my-client&client_secret=my-secret"
 ```
 
 ### Submitting a Job via MCP

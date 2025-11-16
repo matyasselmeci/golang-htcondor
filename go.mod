@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/PelicanPlatform/classad v0.0.4
 	github.com/bbockelm/cedar v0.0.10
-	github.com/mattn/go-sqlite3 v1.14.32
+	github.com/glebarez/sqlite v1.11.0
 	github.com/ory/fosite v0.47.0
 	golang.org/x/crypto v0.43.0
 	golang.org/x/oauth2 v0.33.0
@@ -23,7 +23,6 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
-	github.com/glebarez/sqlite v1.11.0 // indirect
 	github.com/go-jose/go-jose/v3 v3.0.3 // indirect
 	github.com/go-logr/logr v1.3.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

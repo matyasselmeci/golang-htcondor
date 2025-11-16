@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -34,9 +35,7 @@ func TestDynamicClientRegistration(t *testing.T) {
 	}
 
 	// Setup server (reuse helper from main test)
-	tempDir, server, baseURL, signingKeyPath := setupTestServer(t, 18082)
-	defer os.RemoveAll(tempDir)
-	defer shutdownTestServer(t, server)
+	_, server, baseURL, port, signingKeyPath := setupTestServer(t)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	testUser := "regtest"
@@ -45,7 +44,7 @@ func TestDynamicClientRegistration(t *testing.T) {
 	t.Log("Testing dynamic client registration...")
 
 	regReq := map[string]interface{}{
-		"redirect_uris":  []string{"http://localhost:18082/callback"},
+		"redirect_uris":  []string{fmt.Sprintf("http://localhost:%d/callback", port)},
 		"grant_types":    []string{"authorization_code", "refresh_token"},
 		"response_types": []string{"code"},
 		"scope":          []string{"openid", "mcp:read", "mcp:write"},
@@ -114,15 +113,13 @@ func TestMCPWithSSO(t *testing.T) {
 	}
 
 	// Setup main MCP server
-	tempDir, mcpServer, mcpBaseURL, signingKeyPath := setupTestServer(t, 18083)
-	defer os.RemoveAll(tempDir)
-	defer shutdownTestServer(t, mcpServer)
+	tempDir, mcpServer, mcpBaseURL, _, signingKeyPath := setupTestServer(t)
 
-	// Setup mock SSO server
-	ssoPort := 18084
+	// Setup mock SSO server with dynamic port
+	ssoPort := findAvailablePort(t)
 	ssoServer := setupMockSSOServer(t, ssoPort, tempDir)
 	ssoBaseURL := fmt.Sprintf("http://127.0.0.1:%d", ssoPort)
-	defer shutdownMockSSOServer(t, ssoServer)
+	t.Cleanup(func() { shutdownMockSSOServer(t, ssoServer) })
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	testUser := "ssouser"
@@ -174,12 +171,13 @@ func TestMCPWithSSO(t *testing.T) {
 
 // Helper functions
 
-func setupTestServer(t *testing.T, port int) (string, *httpserver.Server, string, string) {
+func setupTestServer(t *testing.T) (string, *httpserver.Server, string, int, string) {
 	// Create temporary directory
 	tempDir, err := os.MkdirTemp("", "htcondor-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
+	t.Cleanup(func() { os.RemoveAll(tempDir) })
 
 	// Write mini condor configuration
 	configFile := filepath.Join(tempDir, "condor_config")
@@ -188,6 +186,7 @@ func setupTestServer(t *testing.T, port int) (string, *httpserver.Server, string
 	}
 
 	os.Setenv("CONDOR_CONFIG", configFile)
+	t.Cleanup(func() { os.Unsetenv("CONDOR_CONFIG") })
 
 	// Start condor_master
 	ctx, cancel := context.WithCancel(context.Background())
@@ -211,11 +210,45 @@ func setupTestServer(t *testing.T, port int) (string, *httpserver.Server, string
 	key, _ := httpserver.GenerateSigningKey()
 	os.WriteFile(signingKeyPath, key, 0600)
 
-	serverAddr := fmt.Sprintf("127.0.0.1:%d", port)
-	baseURL := fmt.Sprintf("http://%s", serverAddr)
+	// Use port 0 to let the OS assign an available port
+	serverAddr := "127.0.0.1:0"
 	oauth2DBPath := filepath.Join(tempDir, "oauth2.db")
 
 	server, err := httpserver.NewServer(httpserver.Config{
+		ListenAddr:     serverAddr,
+		ScheddName:     "local",
+		ScheddAddr:     "127.0.0.1:9618",
+		UserHeader:     "X-Test-User",
+		SigningKeyPath: signingKeyPath,
+		TrustDomain:    "test.local",
+		UIDDomain:      "test.local",
+		EnableMCP:      true,
+		OAuth2DBPath:   oauth2DBPath,
+		OAuth2Issuer:   "http://127.0.0.1", // Will be updated with actual port
+	})
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	// Start server and get the actual port
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.Start()
+	}()
+
+	// Wait for server to start and extract the port
+	time.Sleep(500 * time.Millisecond)
+	
+	// Get the actual listening port from the server
+	// Since we can't easily extract the port from the server, we'll use a listener approach
+	// For now, let's use a fixed range of ports starting from a high number
+	port := findAvailablePort(t)
+	
+	// Recreate server with actual port
+	serverAddr = fmt.Sprintf("127.0.0.1:%d", port)
+	baseURL := fmt.Sprintf("http://%s", serverAddr)
+	
+	server, err = httpserver.NewServer(httpserver.Config{
 		ListenAddr:     serverAddr,
 		ScheddName:     "local",
 		ScheddAddr:     "127.0.0.1:9618",
@@ -232,9 +265,25 @@ func setupTestServer(t *testing.T, port int) (string, *httpserver.Server, string
 	}
 
 	go server.Start()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		server.Shutdown(ctx)
+	})
+
 	time.Sleep(1 * time.Second) // Wait for server to start
 
-	return tempDir, server, baseURL, signingKeyPath
+	return tempDir, server, baseURL, port, signingKeyPath
+}
+
+// findAvailablePort finds an available port for testing
+func findAvailablePort(t *testing.T) int {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to find available port: %v", err)
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port
 }
 
 func shutdownTestServer(t *testing.T, server *httpserver.Server) {

@@ -148,11 +148,16 @@ func runNormalMode() error {
 		}
 		log.Printf("OAuth2 database path: %s", oauth2DBPath)
 
-		// Get OAuth2 issuer from config or construct from listen address
+		// Get OAuth2 issuer from config or construct from FULL_HOSTNAME
 		if issuer, ok := cfg.Get("HTTP_API_OAUTH2_ISSUER"); ok && issuer != "" {
 			oauth2Issuer = issuer
 		} else {
-			oauth2Issuer = "http://" + listenAddrFromConfig
+			// Default to https:// and use FULL_HOSTNAME if available
+			hostname := listenAddrFromConfig
+			if fullHostname, ok := cfg.Get("FULL_HOSTNAME"); ok && fullHostname != "" {
+				hostname = fullHostname
+			}
+			oauth2Issuer = "https://" + hostname
 		}
 		log.Printf("OAuth2 issuer: %s", oauth2Issuer)
 	}
