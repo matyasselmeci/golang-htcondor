@@ -292,7 +292,10 @@ func runDemoMode() error {
 	collector := htcondor.NewCollector("127.0.0.1:9618")
 	logger.Info(logging.DestinationCollector, "Created collector for demo mode", "host", "127.0.0.1:9618")
 
-	// Create and start HTTP server
+	// OAuth2 database path for MCP
+	oauth2DBPath := filepath.Join(tempDir, "oauth2.db")
+
+	// Create and start HTTP server with MCP enabled
 	server, err := httpserver.NewServer(httpserver.Config{
 		ListenAddr:     *listenAddr,
 		UserHeader:     *userHeader,
@@ -301,6 +304,9 @@ func runDemoMode() error {
 		UIDDomain:      uidDomain,
 		Collector:      collector,
 		Logger:         logger,
+		EnableMCP:      true,                          // Enable MCP in demo mode
+		OAuth2DBPath:   oauth2DBPath,                  // OAuth2 database path
+		OAuth2Issuer:   "http://" + *listenAddr,       // OAuth2 issuer URL
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)

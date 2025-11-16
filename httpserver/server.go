@@ -227,6 +227,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }
 
+// GetOAuth2Provider returns the OAuth2 provider (for testing)
+func (s *Server) GetOAuth2Provider() *OAuth2Provider {
+	return s.oauth2Provider
+}
+
 // responseWriter wraps http.ResponseWriter to capture status code and bytes written
 type responseWriter struct {
 	http.ResponseWriter
