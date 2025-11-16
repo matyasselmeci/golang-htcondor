@@ -61,12 +61,20 @@ func (s *Server) handleMCPMessage(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Debug(logging.DestinationHTTP, "Received MCP message", "method", mcpRequest.Method, "username", username)
 
+	// Check if the requested MCP method is allowed based on OAuth2 scopes
+	if !s.isMethodAllowedByScopes(token, &mcpRequest) {
+		s.logger.Warn(logging.DestinationHTTP, "MCP method not allowed by scopes", "method", mcpRequest.Method, "scopes", token.GetGrantedScopes())
+		s.writeError(w, http.StatusForbidden, "Insufficient permissions for requested operation")
+		return
+	}
+
 	// Create context with security config for HTCondor operations
 	ctx := r.Context()
 
+	// Generate HTCondor token with appropriate permissions based on OAuth2 scopes
 	// If we have a signing key, generate an HTCondor token for this user
 	if s.signingKeyPath != "" && s.trustDomain != "" {
-		htcToken, err := s.generateHTCondorToken(username)
+		htcToken, err := s.generateHTCondorTokenWithScopes(username, token.GetGrantedScopes())
 		if err != nil {
 			s.logger.Error(logging.DestinationHTTP, "Failed to generate HTCondor token", "error", err, "username", username)
 			s.writeError(w, http.StatusInternalServerError, "Failed to generate authentication token")
@@ -317,6 +325,160 @@ func (s *Server) generateHTCondorToken(username string) (string, error) {
 		iat,
 		exp,
 		nil,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate JWT: %w", err)
+	}
+
+	return token, nil
+}
+
+// handleOAuth2Metadata handles OAuth2 authorization server metadata discovery
+// Implements RFC 8414: OAuth 2.0 Authorization Server Metadata
+func (s *Server) handleOAuth2Metadata(w http.ResponseWriter, r *http.Request) {
+	if s.oauth2Provider == nil {
+		s.writeError(w, http.StatusNotFound, "OAuth2 not configured")
+		return
+	}
+
+	// Get the issuer URL from the OAuth2 provider config
+	issuer := s.oauth2Provider.config.AccessTokenIssuer
+
+	metadata := map[string]interface{}{
+		"issuer":                                issuer,
+		"authorization_endpoint":                issuer + "/mcp/oauth2/authorize",
+		"token_endpoint":                        issuer + "/mcp/oauth2/token",
+		"introspection_endpoint":                issuer + "/mcp/oauth2/introspect",
+		"revocation_endpoint":                   issuer + "/mcp/oauth2/revoke",
+		"response_types_supported":              []string{"code", "token", "id_token", "code token", "code id_token", "token id_token", "code token id_token"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
+		"subject_types_supported":               []string{"public"},
+		"id_token_signing_alg_values_supported": []string{"RS256"},
+		"scopes_supported":                      []string{"openid", "profile", "email", "mcp:read", "mcp:write"},
+		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"},
+		"code_challenge_methods_supported":      []string{"plain", "S256"},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(metadata); err != nil {
+		s.logger.Error(logging.DestinationHTTP, "Failed to encode metadata", "error", err)
+	}
+}
+
+// isMethodAllowedByScopes checks if an MCP method is allowed based on OAuth2 scopes
+func (s *Server) isMethodAllowedByScopes(token fosite.AccessRequester, mcpRequest *mcpserver.MCPMessage) bool {
+	scopes := token.GetGrantedScopes()
+
+	// Check if user has mcp:write or mcp:read scopes
+	hasRead := false
+	hasWrite := false
+	for _, scope := range scopes {
+		if scope == "mcp:read" {
+			hasRead = true
+		}
+		if scope == "mcp:write" {
+			hasWrite = true
+		}
+	}
+
+	// Determine if the method requires write access
+	requiresWrite := s.methodRequiresWrite(mcpRequest)
+
+	// Allow if user has write access, or has read access and method doesn't require write
+	if hasWrite {
+		return true
+	}
+	if hasRead && !requiresWrite {
+		return true
+	}
+
+	return false
+}
+
+// methodRequiresWrite determines if an MCP method requires write access
+func (s *Server) methodRequiresWrite(mcpRequest *mcpserver.MCPMessage) bool {
+	// Read-only methods
+	readOnlyMethods := map[string]bool{
+		"initialize":      true,
+		"tools/list":      true,
+		"resources/list":  true,
+		"resources/read":  true,
+	}
+
+	// Check if method itself is read-only
+	if readOnlyMethods[mcpRequest.Method] {
+		return false
+	}
+
+	// For tools/call, check the tool name
+	if mcpRequest.Method == "tools/call" {
+		var params struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(mcpRequest.Params, &params); err == nil {
+			// Read-only tools
+			readOnlyTools := map[string]bool{
+				"query_jobs": true,
+				"get_job":    true,
+			}
+			if readOnlyTools[params.Name] {
+				return false
+			}
+		}
+	}
+
+	// All other methods/tools require write access
+	return true
+}
+
+// generateHTCondorTokenWithScopes generates an HTCondor token with scope-based permissions
+func (s *Server) generateHTCondorTokenWithScopes(username string, scopes []string) (string, error) {
+	if s.signingKeyPath == "" {
+		return "", fmt.Errorf("signing key path not configured")
+	}
+
+	if s.trustDomain == "" {
+		return "", fmt.Errorf("trust domain not configured")
+	}
+
+	// Ensure username has domain suffix
+	if !strings.Contains(username, "@") {
+		if s.uidDomain == "" {
+			return "", fmt.Errorf("UID domain not configured")
+		}
+		username = username + "@" + s.uidDomain
+	}
+
+	iat := time.Now().Unix()
+	exp := time.Now().Add(1 * time.Hour).Unix()
+
+	// Build authz list based on scopes
+	var authz []string
+	hasWrite := false
+	for _, scope := range scopes {
+		if scope == "mcp:write" {
+			hasWrite = true
+			break
+		}
+	}
+
+	if hasWrite {
+		// Full access
+		authz = []string{"WRITE", "READ", "ADVERTISE_STARTD", "ADVERTISE_SCHEDD", "ADVERTISE_MASTER"}
+	} else {
+		// Read-only access
+		authz = []string{"READ"}
+	}
+
+	token, err := security.GenerateJWT(
+		s.signingKeyPath, // directory
+		"POOL",           // key name
+		username,
+		s.trustDomain,
+		iat,
+		exp,
+		authz,
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate JWT: %w", err)
