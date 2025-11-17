@@ -86,7 +86,7 @@ func (s *Server) handleMCPMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.logger.Debug(logging.DestinationHTTP, "Received MCP message", "method", mcpRequest.Method, "username", username)
+	s.logger.Info(logging.DestinationHTTP, "Received MCP message", "method", mcpRequest.Method, "username", username)
 
 	// Check if the requested MCP method is allowed based on OAuth2 scopes
 	if !s.isMethodAllowedByScopes(token, &mcpRequest) {
@@ -97,6 +97,8 @@ func (s *Server) handleMCPMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Create context with security config for HTCondor operations
 	ctx := r.Context()
+
+	s.logger.Info(logging.DestinationHTTP, "Signing key path", "path", s.signingKeyPath, "trust_domain", s.trustDomain)
 
 	// Generate HTCondor token with appropriate permissions based on OAuth2 scopes
 	// If we have a signing key, generate an HTCondor token for this user
