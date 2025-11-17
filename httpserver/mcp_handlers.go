@@ -58,14 +58,14 @@ func (s *Server) handleMCPMessage(w http.ResponseWriter, r *http.Request) {
 	token, err := s.validateOAuth2Token(r)
 	if err != nil {
 		s.logger.Error(logging.DestinationHTTP, "OAuth2 validation failed", "error", err)
-		s.writeError(w, http.StatusUnauthorized, "Invalid or missing OAuth2 token")
+		s.writeOAuthError(w, http.StatusUnauthorized, "invalid_token", "Invalid or missing OAuth2 token")
 		return
 	}
 
 	// Extract username from token using configured claim
 	username := s.extractUsernameFromToken(token)
 	if username == "" {
-		s.writeError(w, http.StatusUnauthorized, "Token missing username claim")
+		s.writeOAuthError(w, http.StatusUnauthorized, "invalid_token", "Token missing username claim")
 		return
 	}
 
@@ -90,7 +90,7 @@ func (s *Server) handleMCPMessage(w http.ResponseWriter, r *http.Request) {
 	// Check if the requested MCP method is allowed based on OAuth2 scopes
 	if !s.isMethodAllowedByScopes(token, &mcpRequest) {
 		s.logger.Warn(logging.DestinationHTTP, "MCP method not allowed by scopes", "method", mcpRequest.Method, "scopes", token.GetGrantedScopes())
-		s.writeError(w, http.StatusForbidden, "Insufficient permissions for requested operation")
+		s.writeOAuthError(w, http.StatusForbidden, "insufficient_scope", "Insufficient permissions for requested operation")
 		return
 	}
 
@@ -541,6 +541,34 @@ func (s *Server) handleOAuth2Metadata(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(metadata); err != nil {
 		s.logger.Error(logging.DestinationHTTP, "Failed to encode metadata", "error", err)
+	}
+}
+
+// handleOAuth2ProtectedResourceMetadata handles OAuth 2.0 Protected Resource metadata discovery
+// Implements RFC 9068: OAuth 2.0 Protected Resource Metadata
+// See: https://datatracker.ietf.org/doc/html/rfc9068
+func (s *Server) handleOAuth2ProtectedResourceMetadata(w http.ResponseWriter, _ *http.Request) {
+	if s.oauth2Provider == nil {
+		s.writeError(w, http.StatusNotFound, "OAuth2 not configured")
+		return
+	}
+
+	// Get the issuer URL from the OAuth2 provider config
+	issuer := s.oauth2Provider.config.AccessTokenIssuer
+
+	metadata := map[string]interface{}{
+		"resource":                              issuer,
+		"authorization_servers":                 []string{issuer},
+		"bearer_methods_supported":              []string{"header"},
+		"resource_signing_alg_values_supported": []string{"RS256"},
+		"scopes_supported":                      []string{"openid", "profile", "email", "mcp:read", "mcp:write"},
+		"resource_documentation":                issuer + "/mcp",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(metadata); err != nil {
+		s.logger.Error(logging.DestinationHTTP, "Failed to encode protected resource metadata", "error", err)
 	}
 }
 

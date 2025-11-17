@@ -415,6 +415,10 @@ type ErrorResponse struct {
 
 // writeError writes an error response
 func (s *Server) writeError(w http.ResponseWriter, statusCode int, message string) {
+	// Add WWW-Authenticate header for 401 Unauthorized responses when OAuth2 is enabled
+	if statusCode == http.StatusUnauthorized && s.oauth2Provider != nil {
+		s.addWWWAuthenticateHeader(w, "", "")
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	if err := json.NewEncoder(w).Encode(ErrorResponse{
@@ -424,6 +428,46 @@ func (s *Server) writeError(w http.ResponseWriter, statusCode int, message strin
 	}); err != nil {
 		s.logger.Error(logging.DestinationHTTP, "Failed to encode error response", "error", err, "status_code", statusCode)
 	}
+}
+
+// writeOAuthError writes an error response with appropriate WWW-Authenticate header
+func (s *Server) writeOAuthError(w http.ResponseWriter, statusCode int, errorCode, errorDescription string) {
+	if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
+		s.addWWWAuthenticateHeader(w, errorCode, errorDescription)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	if err := json.NewEncoder(w).Encode(ErrorResponse{
+		Error:   errorCode,
+		Message: errorDescription,
+		Code:    statusCode,
+	}); err != nil {
+		s.logger.Error(logging.DestinationHTTP, "Failed to encode error response", "error", err, "status_code", statusCode)
+	}
+}
+
+// addWWWAuthenticateHeader adds RFC 6750 compliant WWW-Authenticate header
+// See: https://datatracker.ietf.org/doc/html/rfc6750#section-3
+func (s *Server) addWWWAuthenticateHeader(w http.ResponseWriter, errorCode, errorDescription string) {
+	if s.oauth2Provider == nil {
+		return
+	}
+
+	// Get the issuer from OAuth2 provider config
+	realm := s.oauth2Provider.config.AccessTokenIssuer
+
+	// Build WWW-Authenticate header value
+	headerValue := fmt.Sprintf(`Bearer realm="%s"`, realm)
+
+	if errorCode != "" {
+		headerValue += fmt.Sprintf(`, error="%s"`, errorCode)
+	}
+
+	if errorDescription != "" {
+		headerValue += fmt.Sprintf(`, error_description="%s"`, errorDescription)
+	}
+
+	w.Header().Set("WWW-Authenticate", headerValue)
 }
 
 // writeJSON writes a JSON response

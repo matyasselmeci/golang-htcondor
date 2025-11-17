@@ -34,8 +34,9 @@ func (s *Server) setupRoutes(mux *http.ServeMux) {
 
 	// MCP endpoints (OAuth2 protected)
 	if s.oauth2Provider != nil {
-		// OAuth2 metadata discovery (RFC 8414)
+		// OAuth2 metadata discovery (RFC 8414 and RFC 9068)
 		mux.HandleFunc("/.well-known/oauth-authorization-server", s.handleOAuth2Metadata)
+		mux.HandleFunc("/.well-known/oauth-protected-resource", s.handleOAuth2ProtectedResourceMetadata)
 
 		// OAuth2 endpoints
 		mux.HandleFunc("/mcp/oauth2/authorize", s.handleOAuth2Authorize)
