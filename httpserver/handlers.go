@@ -1198,13 +1198,13 @@ func (s *Server) handleCollectorPath(w http.ResponseWriter, r *http.Request) {
 
 // PingResponse represents a ping response for a daemon
 type PingResponse struct {
-	Daemon         string `json:"daemon"`          // "collector" or "schedd"
-	AuthMethod     string `json:"auth_method"`     // Authentication method used
-	User           string `json:"user"`            // Authenticated username
-	SessionID      string `json:"session_id"`      // Session identifier
-	ValidCommands  string `json:"valid_commands"`  // Commands authorized
-	Encryption     bool   `json:"encryption"`      // Whether encryption is enabled
-	Authentication bool   `json:"authentication"`  // Whether authentication is enabled
+	Daemon         string `json:"daemon"`         // "collector" or "schedd"
+	AuthMethod     string `json:"auth_method"`    // Authentication method used
+	User           string `json:"user"`           // Authenticated username
+	SessionID      string `json:"session_id"`     // Session identifier
+	ValidCommands  string `json:"valid_commands"` // Commands authorized
+	Encryption     bool   `json:"encryption"`     // Whether encryption is enabled
+	Authentication bool   `json:"authentication"` // Whether authentication is enabled
 }
 
 // handleCollectorPing handles GET /api/v1/collector/ping
