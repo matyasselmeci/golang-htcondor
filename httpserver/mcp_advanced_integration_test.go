@@ -47,7 +47,7 @@ func TestDynamicClientRegistration(t *testing.T) {
 		"redirect_uris":  []string{fmt.Sprintf("%s/callback", baseURL)},
 		"grant_types":    []string{"authorization_code", "refresh_token"},
 		"response_types": []string{"code"},
-		"scope":          []string{"openid", "mcp:read", "mcp:write"},
+		"scope":          []string{"openid", "profile", "email", "mcp:read", "mcp:write"},
 		"client_name":    "Test Dynamic Client",
 	}
 

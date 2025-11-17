@@ -446,7 +446,22 @@ func (s *Server) handleOAuth2Register(w http.ResponseWriter, r *http.Request) {
 		regReq.ResponseTypes = []string{"code"}
 	}
 	if len(regReq.Scopes) == 0 {
-		regReq.Scopes = []string{"openid", "mcp:read", "mcp:write"}
+		regReq.Scopes = []string{"openid", "profile", "email", "mcp:read", "mcp:write"}
+	}
+
+	// Validate requested scopes against supported scopes
+	supportedScopes := map[string]bool{
+		"openid":    true,
+		"profile":   true,
+		"email":     true,
+		"mcp:read":  true,
+		"mcp:write": true,
+	}
+	for _, scope := range regReq.Scopes {
+		if !supportedScopes[scope] {
+			s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Unsupported scope: %s", scope))
+			return
+		}
 	}
 
 	// Create the client
