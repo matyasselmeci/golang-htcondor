@@ -610,6 +610,9 @@ func (s *OAuth2Storage) GetDeviceCodeSession(ctx context.Context, deviceCode str
 	if status == "pending" {
 		return nil, ErrAuthorizationPending
 	}
+	if status == "used" {
+		return nil, fosite.ErrInvalidGrant.WithDebug("Device code already used")
+	}
 
 	client, err := s.GetClient(ctx, clientID)
 	if err != nil {
