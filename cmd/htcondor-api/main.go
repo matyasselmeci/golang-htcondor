@@ -293,6 +293,113 @@ func discoverOIDCEndpoints(issuerURL string) (authURL, tokenURL string, err erro
 	return config.AuthorizationEndpoint, config.TokenEndpoint, nil
 }
 
+// loadOAuth2DBPath loads OAuth2 database path from config
+func loadOAuth2DBPath(cfg *config.Config) string {
+	if dbPath, ok := cfg.Get("HTTP_API_OAUTH2_DB_PATH"); ok && dbPath != "" {
+		return dbPath
+	}
+	if localDir, ok := cfg.Get("LOCAL_DIR"); ok && localDir != "" {
+		return filepath.Join(localDir, "oauth2.db")
+	}
+	return "/var/lib/condor/oauth2.db"
+}
+
+// loadOAuth2Issuer loads OAuth2 issuer from config or constructs it
+func loadOAuth2Issuer(cfg *config.Config, listenAddrFromConfig string) string {
+	if issuer, ok := cfg.Get("HTTP_API_OAUTH2_ISSUER"); ok && issuer != "" {
+		return issuer
+	}
+
+	// Default to https:// and use FULL_HOSTNAME if available
+	hostname := listenAddrFromConfig
+	if fullHostname, ok := cfg.Get("FULL_HOSTNAME"); ok && fullHostname != "" {
+		hostname = fullHostname
+	}
+
+	// Append port if non-standard (not 443 for https)
+	if strings.HasPrefix(listenAddrFromConfig, ":") {
+		port := strings.TrimPrefix(listenAddrFromConfig, ":")
+		if port != "443" && port != "" {
+			hostname = hostname + ":" + port
+		}
+	}
+
+	return "https://" + hostname
+}
+
+// loadOAuth2ClientSecret loads OAuth2 client secret from file
+func loadOAuth2ClientSecret(cfg *config.Config) string {
+	secretFile, ok := cfg.Get("HTTP_API_OAUTH2_CLIENT_SECRET_FILE")
+	if !ok || secretFile == "" {
+		return ""
+	}
+
+	// #nosec G304 -- Reading OAuth2 client secret from configured file path
+	secretData, err := os.ReadFile(secretFile)
+	if err != nil {
+		log.Printf("Warning: failed to read OAuth2 client secret file '%s': %v", secretFile, err)
+		return ""
+	}
+
+	log.Printf("OAuth2 client secret loaded from file: %s", secretFile)
+	return strings.TrimSpace(string(secretData))
+}
+
+// loadOAuth2Endpoints loads OAuth2 auth and token URLs via OIDC discovery or explicit config
+func loadOAuth2Endpoints(cfg *config.Config) (authURL, tokenURL string) {
+	// Check for OIDC discovery first
+	if idpURL, ok := cfg.Get("HTTP_API_OAUTH2_IDP"); ok && idpURL != "" {
+		log.Printf("Attempting OIDC discovery from: %s", idpURL)
+		auth, token, err := discoverOIDCEndpoints(idpURL)
+		if err == nil {
+			log.Printf("OIDC discovery successful - Auth URL: %s, Token URL: %s", auth, token)
+			return auth, token
+		}
+		log.Printf("Warning: OIDC discovery failed: %v", err)
+	}
+
+	// Fall back to explicit URLs
+	if auth, ok := cfg.Get("HTTP_API_OAUTH2_AUTH_URL"); ok && auth != "" {
+		authURL = auth
+	}
+	if token, ok := cfg.Get("HTTP_API_OAUTH2_TOKEN_URL"); ok && token != "" {
+		tokenURL = token
+	}
+
+	return authURL, tokenURL
+}
+
+// loadOAuth2RedirectURL loads or derives OAuth2 redirect URL
+func loadOAuth2RedirectURL(cfg *config.Config, issuer string) string {
+	if redirectURL, ok := cfg.Get("HTTP_API_OAUTH2_REDIRECT_URL"); ok && redirectURL != "" {
+		return redirectURL
+	}
+
+	if issuer != "" {
+		url := issuer + "/mcp/oauth2/callback"
+		log.Printf("OAuth2 redirect URL derived from issuer: %s", url)
+		return url
+	}
+
+	return ""
+}
+
+// loadAccessControlGroups loads MCP access control group settings
+func loadAccessControlGroups(cfg *config.Config, config *mcpConfig) {
+	if accessGroup, ok := cfg.Get("HTTP_API_MCP_ACCESS_GROUP"); ok && accessGroup != "" {
+		config.mcpAccessGroup = accessGroup
+		log.Printf("MCP access group: %s", accessGroup)
+	}
+	if readGroup, ok := cfg.Get("HTTP_API_MCP_READ_GROUP"); ok && readGroup != "" {
+		config.mcpReadGroup = readGroup
+		log.Printf("MCP read group: %s", readGroup)
+	}
+	if writeGroup, ok := cfg.Get("HTTP_API_MCP_WRITE_GROUP"); ok && writeGroup != "" {
+		config.mcpWriteGroup = writeGroup
+		log.Printf("MCP write group: %s", writeGroup)
+	}
+}
+
 // loadMCPConfig loads MCP configuration from HTCondor config
 func loadMCPConfig(cfg *config.Config, listenAddrFromConfig string) mcpConfig {
 	config := mcpConfig{}
@@ -303,118 +410,53 @@ func loadMCPConfig(cfg *config.Config, listenAddrFromConfig string) mcpConfig {
 		log.Println("MCP endpoints enabled via configuration")
 	}
 
-	// Get OAuth2 DB path from config, default to /var/lib/condor/oauth2.db
-	if config.enabled {
-		if dbPath, ok := cfg.Get("HTTP_API_OAUTH2_DB_PATH"); ok && dbPath != "" {
-			config.oauth2DBPath = dbPath
-		} else if localDir, ok := cfg.Get("LOCAL_DIR"); ok && localDir != "" {
-			config.oauth2DBPath = filepath.Join(localDir, "oauth2.db")
-		} else {
-			config.oauth2DBPath = "/var/lib/condor/oauth2.db"
-		}
-		log.Printf("OAuth2 database path: %s", config.oauth2DBPath)
-
-		// Get OAuth2 issuer from config or construct from FULL_HOSTNAME
-		if issuer, ok := cfg.Get("HTTP_API_OAUTH2_ISSUER"); ok && issuer != "" {
-			config.oauth2Issuer = issuer
-		} else {
-			// Default to https:// and use FULL_HOSTNAME if available
-			hostname := listenAddrFromConfig
-			if fullHostname, ok := cfg.Get("FULL_HOSTNAME"); ok && fullHostname != "" {
-				hostname = fullHostname
-			}
-			// Append port if non-standard (not 443 for https)
-			if strings.HasPrefix(listenAddrFromConfig, ":") {
-				// Extract port from listen address
-				port := strings.TrimPrefix(listenAddrFromConfig, ":")
-				if port != "443" && port != "" {
-					hostname = hostname + ":" + port
-				}
-			}
-			config.oauth2Issuer = "https://" + hostname
-		}
-		log.Printf("OAuth2 issuer: %s", config.oauth2Issuer)
-
-		// Get OAuth2 client ID
-		if clientID, ok := cfg.Get("HTTP_API_OAUTH2_CLIENT_ID"); ok && clientID != "" {
-			config.oauth2ClientID = clientID
-		}
-
-		// Get OAuth2 client secret from file
-		if secretFile, ok := cfg.Get("HTTP_API_OAUTH2_CLIENT_SECRET_FILE"); ok && secretFile != "" {
-			// #nosec G304 -- Reading OAuth2 client secret from configured file path
-			if secretData, err := os.ReadFile(secretFile); err == nil {
-				config.oauth2ClientSecret = strings.TrimSpace(string(secretData))
-				log.Printf("OAuth2 client secret loaded from file: %s", secretFile)
-			} else {
-				log.Printf("Warning: failed to read OAuth2 client secret file '%s': %v", secretFile, err)
-			}
-		}
-
-		// Check for OIDC discovery or explicit URLs
-		if idpURL, ok := cfg.Get("HTTP_API_OAUTH2_IDP"); ok && idpURL != "" {
-			// Use OIDC discovery to find auth and token URLs
-			log.Printf("Attempting OIDC discovery from: %s", idpURL)
-			if authURL, tokenURL, err := discoverOIDCEndpoints(idpURL); err == nil {
-				config.oauth2AuthURL = authURL
-				config.oauth2TokenURL = tokenURL
-				log.Printf("OIDC discovery successful - Auth URL: %s, Token URL: %s", authURL, tokenURL)
-			} else {
-				log.Printf("Warning: OIDC discovery failed: %v", err)
-			}
-		} else {
-			// Get explicit auth and token URLs
-			if authURL, ok := cfg.Get("HTTP_API_OAUTH2_AUTH_URL"); ok && authURL != "" {
-				config.oauth2AuthURL = authURL
-			}
-			if tokenURL, ok := cfg.Get("HTTP_API_OAUTH2_TOKEN_URL"); ok && tokenURL != "" {
-				config.oauth2TokenURL = tokenURL
-			}
-		}
-
-		// Get redirect URL or derive from issuer
-		if redirectURL, ok := cfg.Get("HTTP_API_OAUTH2_REDIRECT_URL"); ok && redirectURL != "" {
-			config.oauth2RedirectURL = redirectURL
-		} else if config.oauth2Issuer != "" {
-			// Default: derive from issuer by appending /mcp/oauth2/callback
-			config.oauth2RedirectURL = config.oauth2Issuer + "/mcp/oauth2/callback"
-			log.Printf("OAuth2 redirect URL derived from issuer: %s", config.oauth2RedirectURL)
-		}
-
-		// Get user info URL
-		if userInfoURL, ok := cfg.Get("HTTP_API_OAUTH2_USERINFO_URL"); ok && userInfoURL != "" {
-			config.oauth2UserInfoURL = userInfoURL
-			log.Printf("OAuth2 user info URL: %s", userInfoURL)
-		}
-
-		// Get groups claim name (default: "groups")
-		if groupsClaim, ok := cfg.Get("HTTP_API_OAUTH2_GROUPS_CLAIM"); ok && groupsClaim != "" {
-			config.oauth2GroupsClaim = groupsClaim
-		} else {
-			config.oauth2GroupsClaim = "groups"
-		}
-		log.Printf("OAuth2 groups claim name: %s", config.oauth2GroupsClaim)
-
-		// Get username claim name (default: "sub")
-		if usernameClaim, ok := cfg.Get("HTTP_API_OAUTH2_USERNAME_CLAIM"); ok && usernameClaim != "" {
-			config.oauth2UsernameClaim = usernameClaim
-			log.Printf("OAuth2 username claim name: %s", usernameClaim)
-		}
-
-		// Get group-based access control settings
-		if accessGroup, ok := cfg.Get("HTTP_API_MCP_ACCESS_GROUP"); ok && accessGroup != "" {
-			config.mcpAccessGroup = accessGroup
-			log.Printf("MCP access group: %s", accessGroup)
-		}
-		if readGroup, ok := cfg.Get("HTTP_API_MCP_READ_GROUP"); ok && readGroup != "" {
-			config.mcpReadGroup = readGroup
-			log.Printf("MCP read group: %s", readGroup)
-		}
-		if writeGroup, ok := cfg.Get("HTTP_API_MCP_WRITE_GROUP"); ok && writeGroup != "" {
-			config.mcpWriteGroup = writeGroup
-			log.Printf("MCP write group: %s", writeGroup)
-		}
+	if !config.enabled {
+		return config
 	}
+
+	// Load OAuth2 database path
+	config.oauth2DBPath = loadOAuth2DBPath(cfg)
+	log.Printf("OAuth2 database path: %s", config.oauth2DBPath)
+
+	// Load OAuth2 issuer
+	config.oauth2Issuer = loadOAuth2Issuer(cfg, listenAddrFromConfig)
+	log.Printf("OAuth2 issuer: %s", config.oauth2Issuer)
+
+	// Load OAuth2 client ID
+	if clientID, ok := cfg.Get("HTTP_API_OAUTH2_CLIENT_ID"); ok && clientID != "" {
+		config.oauth2ClientID = clientID
+	}
+
+	// Load OAuth2 client secret
+	config.oauth2ClientSecret = loadOAuth2ClientSecret(cfg)
+
+	// Load OAuth2 endpoints (auth and token URLs)
+	config.oauth2AuthURL, config.oauth2TokenURL = loadOAuth2Endpoints(cfg)
+
+	// Load OAuth2 redirect URL
+	config.oauth2RedirectURL = loadOAuth2RedirectURL(cfg, config.oauth2Issuer)
+
+	// Load user info URL
+	if userInfoURL, ok := cfg.Get("HTTP_API_OAUTH2_USERINFO_URL"); ok && userInfoURL != "" {
+		config.oauth2UserInfoURL = userInfoURL
+		log.Printf("OAuth2 user info URL: %s", userInfoURL)
+	}
+
+	// Load groups claim name (default: "groups")
+	config.oauth2GroupsClaim = "groups"
+	if groupsClaim, ok := cfg.Get("HTTP_API_OAUTH2_GROUPS_CLAIM"); ok && groupsClaim != "" {
+		config.oauth2GroupsClaim = groupsClaim
+	}
+	log.Printf("OAuth2 groups claim name: %s", config.oauth2GroupsClaim)
+
+	// Load username claim name (default: "sub")
+	if usernameClaim, ok := cfg.Get("HTTP_API_OAUTH2_USERNAME_CLAIM"); ok && usernameClaim != "" {
+		config.oauth2UsernameClaim = usernameClaim
+		log.Printf("OAuth2 username claim name: %s", usernameClaim)
+	}
+
+	// Load access control groups
+	loadAccessControlGroups(cfg, &config)
 
 	return config
 }
