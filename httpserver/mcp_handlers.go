@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -677,9 +678,18 @@ func (s *Server) generateHTCondorTokenWithScopes(username string, scopes []strin
 		authz = []string{"READ"}
 	}
 
+	s.logger.Info(logging.DestinationHTTP, "Generating HTCondor token",
+		"username", username,
+		"trust_domain", s.trustDomain,
+		"iat", iat,
+		"exp", exp,
+		"authz", authz,
+		"scopes", scopes,
+		"signing_key_path", s.signingKeyPath,
+	)
 	token, err := security.GenerateJWT(
-		s.signingKeyPath, // directory
-		"POOL",           // key name
+		filepath.Dir(s.signingKeyPath),
+		filepath.Dir(s.signingKeyPath),
 		username,
 		s.trustDomain,
 		iat,
