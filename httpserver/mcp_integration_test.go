@@ -224,7 +224,7 @@ func createOAuth2Client(t *testing.T, server *Server, username string) (string, 
 // getOAuth2TokenAuthCode obtains an OAuth2 access token using authorization code flow
 func getOAuth2TokenAuthCode(t *testing.T, httpClient *http.Client, baseURL, clientID, clientSecret, username string) string {
 	// Step 1: Create authorization request
-	authURL := fmt.Sprintf("%s/mcp/oauth2/authorize?response_type=code&client_id=%s&redirect_uri=http://localhost:18081/callback&scope=openid+mcp:read+mcp:write&state=teststate&username=%s",
+	authURL := fmt.Sprintf("%s/mcp/oauth2/authorize?response_type=code&client_id=%s&redirect_uri=http://localhost:18081/callback&scope=openid+profile+email+mcp:read+mcp:write&state=teststate&username=%s",
 		baseURL, clientID, username)
 
 	req, err := http.NewRequest("GET", authURL, nil)

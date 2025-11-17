@@ -257,40 +257,41 @@ func discoverSchedd(cfg *config.Config, collector *htcondor.Collector, logger *l
 	return "", ""
 }
 
-// discoverOIDCEndpoints performs OIDC discovery to find authorization and token endpoints
-func discoverOIDCEndpoints(issuerURL string) (authURL, tokenURL string, err error) {
+// discoverOIDCEndpoints performs OIDC discovery to find authorization, token, and userinfo endpoints
+func discoverOIDCEndpoints(issuerURL string) (authURL, tokenURL, userInfoURL string, err error) {
 	// Construct the well-known OIDC configuration URL
 	configURL := strings.TrimSuffix(issuerURL, "/") + "/.well-known/openid-configuration"
 
 	// Fetch the OIDC configuration
 	req, err := http.NewRequestWithContext(context.Background(), "GET", configURL, nil)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to create OIDC configuration request: %w", err)
+		return "", "", "", fmt.Errorf("failed to create OIDC configuration request: %w", err)
 	}
 	resp, err := http.DefaultClient.Do(req) // #nosec G107 -- URL is from configuration, admin-controlled
 	if err != nil {
-		return "", "", fmt.Errorf("failed to fetch OIDC configuration: %w", err)
+		return "", "", "", fmt.Errorf("failed to fetch OIDC configuration: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("OIDC configuration endpoint returned status %d", resp.StatusCode)
+		return "", "", "", fmt.Errorf("OIDC configuration endpoint returned status %d", resp.StatusCode)
 	}
 
 	// Parse the configuration
 	var config struct {
 		AuthorizationEndpoint string `json:"authorization_endpoint"`
 		TokenEndpoint         string `json:"token_endpoint"`
+		UserinfoEndpoint      string `json:"userinfo_endpoint"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
-		return "", "", fmt.Errorf("failed to parse OIDC configuration: %w", err)
+		return "", "", "", fmt.Errorf("failed to parse OIDC configuration: %w", err)
 	}
 
 	if config.AuthorizationEndpoint == "" || config.TokenEndpoint == "" {
-		return "", "", fmt.Errorf("OIDC configuration missing required endpoints")
+		return "", "", "", fmt.Errorf("OIDC configuration missing required endpoints")
 	}
 
-	return config.AuthorizationEndpoint, config.TokenEndpoint, nil
+	return config.AuthorizationEndpoint, config.TokenEndpoint, config.UserinfoEndpoint, nil
 }
 
 // loadOAuth2DBPath loads OAuth2 database path from config
@@ -345,15 +346,18 @@ func loadOAuth2ClientSecret(cfg *config.Config) string {
 	return strings.TrimSpace(string(secretData))
 }
 
-// loadOAuth2Endpoints loads OAuth2 auth and token URLs via OIDC discovery or explicit config
-func loadOAuth2Endpoints(cfg *config.Config) (authURL, tokenURL string) {
+// loadOAuth2Endpoints loads OAuth2 auth, token, and userinfo URLs via OIDC discovery or explicit config
+func loadOAuth2Endpoints(cfg *config.Config) (authURL, tokenURL, userInfoURL string) {
 	// Check for OIDC discovery first
 	if idpURL, ok := cfg.Get("HTTP_API_OAUTH2_IDP"); ok && idpURL != "" {
 		log.Printf("Attempting OIDC discovery from: %s", idpURL)
-		auth, token, err := discoverOIDCEndpoints(idpURL)
+		auth, token, userInfo, err := discoverOIDCEndpoints(idpURL)
 		if err == nil {
 			log.Printf("OIDC discovery successful - Auth URL: %s, Token URL: %s", auth, token)
-			return auth, token
+			if userInfo != "" {
+				log.Printf("OIDC discovery found UserInfo URL: %s", userInfo)
+			}
+			return auth, token, userInfo
 		}
 		log.Printf("Warning: OIDC discovery failed: %v", err)
 	}
@@ -365,8 +369,11 @@ func loadOAuth2Endpoints(cfg *config.Config) (authURL, tokenURL string) {
 	if token, ok := cfg.Get("HTTP_API_OAUTH2_TOKEN_URL"); ok && token != "" {
 		tokenURL = token
 	}
+	if userInfo, ok := cfg.Get("HTTP_API_OAUTH2_USERINFO_URL"); ok && userInfo != "" {
+		userInfoURL = userInfo
+	}
 
-	return authURL, tokenURL
+	return authURL, tokenURL, userInfoURL
 }
 
 // loadOAuth2RedirectURL loads or derives OAuth2 redirect URL
@@ -430,16 +437,16 @@ func loadMCPConfig(cfg *config.Config, listenAddrFromConfig string) mcpConfig {
 	// Load OAuth2 client secret
 	config.oauth2ClientSecret = loadOAuth2ClientSecret(cfg)
 
-	// Load OAuth2 endpoints (auth and token URLs)
-	config.oauth2AuthURL, config.oauth2TokenURL = loadOAuth2Endpoints(cfg)
+	// Load OAuth2 endpoints (auth, token, and userinfo URLs)
+	// This will auto-discover from IDP if configured, or use explicit URLs
+	config.oauth2AuthURL, config.oauth2TokenURL, config.oauth2UserInfoURL = loadOAuth2Endpoints(cfg)
 
 	// Load OAuth2 redirect URL
 	config.oauth2RedirectURL = loadOAuth2RedirectURL(cfg, config.oauth2Issuer)
 
-	// Load user info URL
-	if userInfoURL, ok := cfg.Get("HTTP_API_OAUTH2_USERINFO_URL"); ok && userInfoURL != "" {
-		config.oauth2UserInfoURL = userInfoURL
-		log.Printf("OAuth2 user info URL: %s", userInfoURL)
+	// Log the user info URL if set
+	if config.oauth2UserInfoURL != "" {
+		log.Printf("OAuth2 user info URL: %s", config.oauth2UserInfoURL)
 	}
 
 	// Load groups claim name (default: "groups")

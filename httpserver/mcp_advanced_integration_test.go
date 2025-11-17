@@ -950,7 +950,7 @@ func shutdownTestServer(t *testing.T, server *Server) {
 
 func getOAuth2TokenAuthCodeForClient(t *testing.T, httpClient *http.Client, baseURL, clientID, clientSecret, username string) string {
 	// Similar to getOAuth2TokenAuthCode but works with any client
-	authURL := fmt.Sprintf("%s/mcp/oauth2/authorize?response_type=code&client_id=%s&redirect_uri=%s/callback&scope=openid+mcp:read+mcp:write&state=teststate&username=%s",
+	authURL := fmt.Sprintf("%s/mcp/oauth2/authorize?response_type=code&client_id=%s&redirect_uri=%s/callback&scope=openid+profile+email+mcp:read+mcp:write&state=teststate&username=%s",
 		baseURL, clientID, baseURL, username)
 
 	req, _ := http.NewRequest("GET", authURL, nil)
