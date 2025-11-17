@@ -71,6 +71,7 @@ type Config struct {
 	OAuth2TokenURL      string              // OAuth2 token URL for SSO (optional)
 	OAuth2RedirectURL   string              // OAuth2 redirect URL for SSO (optional)
 	OAuth2UserInfoURL   string              // OAuth2 user info endpoint for SSO (optional)
+	OAuth2Scopes        []string            // OAuth2 scopes to request (default: ["openid", "profile", "email"])
 	OAuth2UsernameClaim string              // Claim name for username in token (default: "sub")
 	OAuth2GroupsClaim   string              // Claim name for groups in user info (default: "groups")
 	MCPAccessGroup      string              // Group required for any MCP access (empty = all authenticated)
@@ -153,6 +154,12 @@ func NewServer(cfg Config) (*Server, error) {
 
 		// Setup OAuth2 client config for SSO if configured
 		if cfg.OAuth2ClientID != "" && cfg.OAuth2AuthURL != "" && cfg.OAuth2TokenURL != "" {
+			// Set default scopes if not provided
+			scopes := cfg.OAuth2Scopes
+			if len(scopes) == 0 {
+				scopes = []string{"openid", "profile", "email"}
+			}
+
 			s.oauth2Config = &oauth2.Config{
 				ClientID:     cfg.OAuth2ClientID,
 				ClientSecret: cfg.OAuth2ClientSecret,
@@ -161,10 +168,10 @@ func NewServer(cfg Config) (*Server, error) {
 					AuthURL:  cfg.OAuth2AuthURL,
 					TokenURL: cfg.OAuth2TokenURL,
 				},
-				Scopes: []string{"openid", "profile", "email"},
+				Scopes: scopes,
 			}
 			s.oauth2UserInfoURL = cfg.OAuth2UserInfoURL
-			logger.Info(logging.DestinationHTTP, "OAuth2 SSO client configured", "auth_url", cfg.OAuth2AuthURL)
+			logger.Info(logging.DestinationHTTP, "OAuth2 SSO client configured", "auth_url", cfg.OAuth2AuthURL, "scopes", scopes)
 		}
 
 		// Set groups claim name (default: "groups")

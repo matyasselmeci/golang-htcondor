@@ -56,6 +56,7 @@ type mcpConfig struct {
 	oauth2TokenURL      string
 	oauth2RedirectURL   string
 	oauth2UserInfoURL   string
+	oauth2Scopes        []string
 	oauth2UsernameClaim string
 	oauth2GroupsClaim   string
 	mcpAccessGroup      string
@@ -391,6 +392,20 @@ func loadOAuth2RedirectURL(cfg *config.Config, issuer string) string {
 	return ""
 }
 
+// loadOAuth2Scopes loads OAuth2 scopes from config
+// Format: HTTP_API_OAUTH2_SCOPES = openid profile email org.cilogon.userinfo
+func loadOAuth2Scopes(cfg *config.Config) []string {
+	if scopesStr, ok := cfg.Get("HTTP_API_OAUTH2_SCOPES"); ok && scopesStr != "" {
+		// Split by whitespace
+		scopes := strings.Fields(scopesStr)
+		if len(scopes) > 0 {
+			log.Printf("OAuth2 scopes from config: %v", scopes)
+			return scopes
+		}
+	}
+	return nil // Will use defaults
+}
+
 // loadAccessControlGroups loads MCP access control group settings
 func loadAccessControlGroups(cfg *config.Config, config *mcpConfig) {
 	if accessGroup, ok := cfg.Get("HTTP_API_MCP_ACCESS_GROUP"); ok && accessGroup != "" {
@@ -448,6 +463,9 @@ func loadMCPConfig(cfg *config.Config, listenAddrFromConfig string) mcpConfig {
 	if config.oauth2UserInfoURL != "" {
 		log.Printf("OAuth2 user info URL: %s", config.oauth2UserInfoURL)
 	}
+
+	// Load OAuth2 scopes
+	config.oauth2Scopes = loadOAuth2Scopes(cfg)
 
 	// Load groups claim name (default: "groups")
 	config.oauth2GroupsClaim = "groups"
@@ -653,6 +671,7 @@ func runNormalMode() error {
 		OAuth2TokenURL:      mcpCfg.oauth2TokenURL,
 		OAuth2RedirectURL:   mcpCfg.oauth2RedirectURL,
 		OAuth2UserInfoURL:   mcpCfg.oauth2UserInfoURL,
+		OAuth2Scopes:        mcpCfg.oauth2Scopes,
 		OAuth2UsernameClaim: mcpCfg.oauth2UsernameClaim,
 		OAuth2GroupsClaim:   mcpCfg.oauth2GroupsClaim,
 		MCPAccessGroup:      mcpCfg.mcpAccessGroup,
@@ -821,9 +840,10 @@ func runDemoMode() error {
 		UIDDomain:      uidDomain,
 		Collector:      collector,
 		Logger:         logger,
-		EnableMCP:      true,                    // Enable MCP in demo mode
-		OAuth2DBPath:   oauth2DBPath,            // OAuth2 database path
-		OAuth2Issuer:   "http://" + *listenAddr, // OAuth2 issuer URL
+		EnableMCP:      true,                                   // Enable MCP in demo mode
+		OAuth2DBPath:   oauth2DBPath,                           // OAuth2 database path
+		OAuth2Issuer:   "http://" + *listenAddr,                // OAuth2 issuer URL
+		OAuth2Scopes:   []string{"openid", "profile", "email"}, // Default scopes for demo
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
