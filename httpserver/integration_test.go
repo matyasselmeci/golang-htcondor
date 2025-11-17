@@ -1351,7 +1351,7 @@ func TestHTTPAPIRateLimiting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	condorMaster, err := startCondorMaster(ctx, configFile)
+	condorMaster, err := startCondorMaster(ctx, configFile, tempDir)
 	if err != nil {
 		t.Fatalf("Failed to start condor_master: %v", err)
 	}
@@ -1359,7 +1359,7 @@ func TestHTTPAPIRateLimiting(t *testing.T) {
 
 	// Wait for condor to be ready
 	t.Log("Waiting for HTCondor to be ready...")
-	if err := waitForCondor(tempDir, 30*time.Second); err != nil {
+	if err := waitForCondor(tempDir, 30*time.Second, t); err != nil {
 		t.Fatalf("Condor failed to start: %v", err)
 	}
 	t.Log("HTCondor is ready!")
