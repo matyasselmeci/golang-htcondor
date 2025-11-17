@@ -582,37 +582,23 @@ func (s *Server) generateHTCondorTokenWithScopes(username string, scopes []strin
 	iat := time.Now().Unix()
 	exp := time.Now().Add(1 * time.Hour).Unix()
 
-	// WORKAROUND: HTCondor expects the 'scope' claim to be a space-separated string,
-	// but security.GenerateJWT() encodes it as a JSON array, which causes HTCondor's
-	// token validation to fail with "did not result in a valid mapped user name".
-	//
-	// For now, we pass an empty authz list (nil) which omits the scope claim entirely.
-	// This gives the token full permissions based on the subject (username) alone.
-	//
-	// TODO: Fix security.GenerateJWT() in cedar to encode scope as a string, or
-	// generate the JWT manually here with proper scope formatting.
-	//
-	// Original scope-based authorization logic (commented out):
-	/*
-		var authz []string
-		hasWrite := false
-		for _, scope := range scopes {
-			if scope == "mcp:write" {
-				hasWrite = true
-				break
-			}
+	// Map MCP scopes to HTCondor authorization levels
+	var authz []string
+	hasWrite := false
+	for _, scope := range scopes {
+		if scope == "mcp:write" {
+			hasWrite = true
+			break
 		}
+	}
 
-		if hasWrite {
-			// Full access
-			authz = []string{"WRITE", "READ", "ADVERTISE_STARTD", "ADVERTISE_SCHEDD", "ADVERTISE_MASTER"}
-		} else {
-			// Read-only access
-			authz = []string{"READ"}
-		}
-	*/
-
-	var authz []string // Empty/nil = no scope claim, allows full access
+	if hasWrite {
+		// Full access for write scope
+		authz = []string{"WRITE", "READ", "ADVERTISE_STARTD", "ADVERTISE_SCHEDD", "ADVERTISE_MASTER"}
+	} else {
+		// Read-only access for read scope
+		authz = []string{"READ"}
+	}
 
 	token, err := security.GenerateJWT(
 		s.signingKeyPath, // directory
